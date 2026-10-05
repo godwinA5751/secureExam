@@ -101,18 +101,54 @@ async function finalizeIfPastDeadline(attempt: any): Promise<boolean> {
   return false;
 }
 
-async function scoreAndSubmit(attempt: any, status: "submitted" | "auto-submitted") {
-  const questions = await Question.find({ _id: { $in: attempt.answers.map((a: any) => a.questionId) } }).select(
-    "+correctOptionIndex"
+async function scoreAndSubmit(
+  attempt: any,
+  status: "submitted" | "auto-submitted"
+) {
+  const questionIds = attempt.answers.map(
+    (answer: any) => answer.questionId
   );
-  const keyById = new Map(questions.map((q) => [q._id.toString(), q.correctOptionIndex]));
+
+  const questions = await Question.find({
+    _id: { $in: questionIds },
+  }).select("+correctOptionIndex");
+
+  const questionById = new Map(
+    questions.map((question) => [
+      question._id.toString(),
+      question,
+    ])
+  );
+
   let score = 0;
-  for (const ans of attempt.answers) {
-    if (keyById.get(ans.questionId.toString()) === ans.selectedOptionIndex) score += 1;
+
+  for (const answer of attempt.answers) {
+    const question = questionById.get(
+      answer.questionId.toString()
+    );
+
+    if (!question) continue;
+
+    const optionOrder =
+      attempt.shuffleMap.optionOrder[
+        answer.questionId.toString()
+      ];
+
+    // Convert the student's displayed/shuffled option index
+    // back to the question's original option index.
+    const originalOptionIndex =
+      optionOrder?.[answer.selectedOptionIndex] ??
+      answer.selectedOptionIndex;
+
+    if (originalOptionIndex === question.correctOptionIndex) {
+      score += 1;
+    }
   }
+
   attempt.score = score;
   attempt.status = status;
   attempt.submittedAt = new Date();
+
   await attempt.save();
 }
 
@@ -170,7 +206,7 @@ export async function heartbeat(req: AuthedRequest, res: Response) {
 
 const answerSchema = z.object({
   questionId: z.string(),
-  selectedOptionIndex: z.number().int().min(0).max(5),
+  selectedOptionIndex: z.number().int().min(0),
 });
 
 export async function saveAnswer(req: AuthedRequest, res: Response) {
@@ -182,17 +218,63 @@ export async function saveAnswer(req: AuthedRequest, res: Response) {
   }
 
   const parsed = answerSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid input",
+    });
+  }
+
   const { questionId, selectedOptionIndex } = parsed.data;
 
-  const isInAttempt = attempt.shuffleMap.questionOrder.some((q) => q.toString() === questionId);
-  if (!isInAttempt) return res.status(400).json({ error: "Question does not belong to this attempt" });
+  const isInAttempt = attempt.shuffleMap.questionOrder.some(
+    (q) => q.toString() === questionId
+  );
 
-  const idx = attempt.answers.findIndex((a) => a.questionId.toString() === questionId);
-  if (idx >= 0) attempt.answers[idx].selectedOptionIndex = selectedOptionIndex;
-  else attempt.answers.push({ questionId: new Types.ObjectId(questionId), selectedOptionIndex });
+  if (!isInAttempt) {
+    return res.status(400).json({
+      error: "Question does not belong to this attempt",
+    });
+  }
+
+  const question = await Question.findById(questionId).select(
+    "_id options"
+  );
+
+  if (!question) {
+    return res.status(400).json({
+      error: "Question not found",
+    });
+  }
+
+  const optionOrder =
+    attempt.shuffleMap.optionOrder[questionId] ??
+    question.options.map((_: string, i: number) => i);
+
+  if (
+    selectedOptionIndex < 0 ||
+    selectedOptionIndex >= optionOrder.length
+  ) {
+    return res.status(400).json({
+      error: "Invalid option",
+    });
+  }
+
+  const idx = attempt.answers.findIndex(
+    (answer) => answer.questionId.toString() === questionId
+  );
+
+  if (idx >= 0) {
+    attempt.answers[idx].selectedOptionIndex = selectedOptionIndex;
+  } else {
+    attempt.answers.push({
+      questionId: new Types.ObjectId(questionId),
+      selectedOptionIndex,
+    });
+  }
 
   await attempt.save();
+
   return res.json({ ok: true });
 }
 

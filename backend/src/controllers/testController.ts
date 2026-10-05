@@ -206,6 +206,101 @@ export async function addManualQuestion(req: AuthedRequest, res: Response) {
   return res.status(201).json({ id: question._id });
 }
 
+const updateQuestionSchema = z.object({
+  text: z.string().min(3).max(1000),
+  options: z.array(z.string().min(1).max(300)).min(2).max(6),
+  correctOptionIndex: z.number().int().min(0),
+  topic: z.string().min(1).max(100),
+});
+
+export async function updateQuestion(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+
+  const { questionId } = req.params;
+
+  const parsed = updateQuestionSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: parsed.error.flatten(),
+    });
+  }
+
+  const data = parsed.data;
+
+  if (data.correctOptionIndex >= data.options.length) {
+    return res.status(400).json({
+      error: "correctOptionIndex is out of range for the given options",
+    });
+  }
+
+  const question = await Question.findOne({
+    _id: questionId,
+    testId: test._id,
+  }).select("+correctOptionIndex");
+
+  if (!question) {
+    return res.status(404).json({
+      error: "Question not found",
+    });
+  }
+
+  // Published tests should not have their questions changed.
+  if (test.status === "published") {
+    return res.status(400).json({
+      error: "Published tests cannot have their questions edited",
+    });
+  }
+
+  question.text = data.text;
+  question.options = data.options;
+  question.correctOptionIndex = data.correctOptionIndex;
+  question.topic = data.topic;
+
+  // Any edited question must be reviewed again.
+  question.approved = false;
+
+  await question.save();
+
+  return res.json({
+    ok: true,
+    question: {
+      id: question._id,
+      text: question.text,
+      options: question.options,
+      correctOptionIndex: question.correctOptionIndex,
+      topic: question.topic,
+      approved: question.approved,
+    },
+  });
+}
+
+export async function deleteTest(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+
+  // Delete all questions belonging to the test
+  await Question.deleteMany({
+    testId: test._id,
+  });
+
+  // Delete all attempts belonging to the test
+  await Attempt.deleteMany({
+    testId: test._id,
+  });
+
+  // Delete the test itself
+  await Test.deleteOne({
+    _id: test._id,
+  });
+
+  return res.json({
+    ok: true,
+    message: "Test deleted successfully",
+  });
+}
+
 const approveSchema = z.object({
   approvedQuestionIds: z.array(z.string()).min(1),
 });
@@ -261,10 +356,10 @@ export async function liveResults(req: AuthedRequest, res: Response) {
 
   return res.json({
     results: attempts.map((a: any) => ({
-      idNumber: a.studentId?.idNumber,
-      status: a.status,
-      score: a.score,
-      submittedAt: a.submittedAt,
+      idNumber: a.studentId?.idNumber ?? "",
+      status: a.status === "auto-submitted" ? "auto-submitted" : "submitted",
+      score: a.score ?? null,
+      submittedAt: a.submittedAt ? new Date(a.submittedAt).toISOString() : null,
     })),
   });
 }

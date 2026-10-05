@@ -97,6 +97,48 @@ export const api = {
       }[];
     }>(`/api/tests/${testId}/questions`, {}, token),
 
+  updateQuestion: (
+    token: string,
+    testId: string,
+    questionId: string,
+    payload: {
+      text: string;
+      options: string[];
+      correctOptionIndex: number;
+      topic: string;
+    }
+  ) =>
+    request<{
+      ok: boolean;
+      question: {
+        id: string;
+        text: string;
+        options: string[];
+        correctOptionIndex: number;
+        topic: string;
+        approved: boolean;
+      };
+    }>(
+      `/api/tests/${testId}/questions/${questionId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+      token
+    ),
+
+  deleteTest: (token: string, testId: string) =>
+  request<{
+    ok: boolean;
+    message: string;
+  }>(
+    `/api/tests/${testId}`,
+    {
+      method: "DELETE",
+    },
+    token
+  ),
+    
   addManualQuestion: (
     token: string,
     testId: string,
@@ -119,11 +161,14 @@ export const api = {
     request<{ linkToken: string; status: string }>(`/api/tests/${testId}/link`, { method: "POST" }, token),
 
   liveResults: (token: string, testId: string) =>
-    request<{ results: { idNumber: string; status: string; score: number | null }[] }>(
-      `/api/tests/${testId}/results`,
-      {},
-      token
-    ),
+    request<{
+      results: {
+        idNumber: string;
+        status: "submitted" | "auto-submitted";
+        score: number | null;
+        submittedAt: string | null;
+      }[];
+    }>(`/api/tests/${testId}/results`, {}, token),
 
   studentLogin: (linkToken: string, idNumber: string, accessCode?: string) =>
     request<{ token: string; testId: string; durationMinutes: number }>("/api/auth/student/login", {

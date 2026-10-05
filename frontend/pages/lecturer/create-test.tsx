@@ -31,6 +31,14 @@ export default function CreateTest() {
   const [qOptions, setQOptions] = useState(["", "", "", ""]);
   const [qCorrect, setQCorrect] = useState(0);
   const [qTopic, setQTopic] = useState("");
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+
+  const [editText, setEditText] = useState("");
+  const [editOptions, setEditOptions] = useState<string[]>([]);
+  const [editCorrect, setEditCorrect] = useState(0);
+  const [editTopic, setEditTopic] = useState("");
+
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const token = () => tokenStore.get("lecturerToken");
 
@@ -116,6 +124,74 @@ export default function CreateTest() {
       await refreshQuestions(testId);
     } catch (err: any) {
       setError(err.message);
+    }
+  }
+
+  function startEditingQuestion(q: QuestionRow) {
+    setEditingQuestionId(q.id);
+    setEditText(q.text);
+    setEditOptions([...q.options]);
+    setEditCorrect(q.correctOptionIndex);
+    setEditTopic(q.topic);
+    setError(null);
+  }
+
+  async function handleSaveQuestion() {
+    const t = token();
+
+    if (!t || !testId || !editingQuestionId) {
+      return;
+    }
+
+    setError(null);
+    setSavingEdit(true);
+
+    try {
+      const options = editOptions.map((option) => option.trim());
+
+      if (!editText.trim()) {
+        throw new Error("Question text is required");
+      }
+
+      if (options.length < 2) {
+        throw new Error("At least two options are required");
+      }
+
+      if (options.some((option) => !option)) {
+        throw new Error("All options must contain text");
+      }
+
+      if (!editTopic.trim()) {
+        throw new Error("Topic is required");
+      }
+
+      if (editCorrect >= options.length) {
+        throw new Error("Select a valid correct answer");
+      }
+
+      await api.updateQuestion(
+        t,
+        testId,
+        editingQuestionId,
+        {
+          text: editText.trim(),
+          options,
+          correctOptionIndex: editCorrect,
+          topic: editTopic.trim(),
+        }
+      );
+
+      setEditingQuestionId(null);
+      setEditText("");
+      setEditOptions([]);
+      setEditCorrect(0);
+      setEditTopic("");
+
+      await refreshQuestions(testId);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -261,23 +337,129 @@ export default function CreateTest() {
                   <ul className="divide-y divide-slate-200 border border-slate-200 rounded-lg">
                     {questions.map((q) => (
                       <li key={q.id} className="p-3 text-sm">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-slate-800">{q.text}</p>
-                          <span
-                            className={`text-xs shrink-0 rounded-full px-2 py-0.5 ${
-                              q.approved ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                            }`}
-                          >
-                            {q.approved ? "approved" : "pending"}
-                          </span>
-                        </div>
-                        <ul className="mt-1 text-xs text-slate-500 list-disc list-inside">
-                          {q.options.map((o, i) => (
-                            <li key={i} className={i === q.correctOptionIndex ? "text-emerald-700 font-medium" : ""}>
-                              {o}
-                            </li>
-                          ))}
-                        </ul>
+                        {editingQuestionId === q.id ? (
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">
+                                Question
+                              </label>
+
+                              <textarea
+                                value={editText}
+                                onChange={(e) => setEditText(e.target.value)}
+                                rows={3}
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">
+                                Options
+                              </label>
+
+                              <div className="space-y-2">
+                                {editOptions.map((option, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <input
+                                      type="radio"
+                                      name={`correct-${q.id}`}
+                                      checked={editCorrect === i}
+                                      onChange={() => setEditCorrect(i)}
+                                      title="Mark as correct answer"
+                                    />
+
+                                    <input
+                                      value={option}
+                                      onChange={(e) => {
+                                        const next = [...editOptions];
+                                        next[i] = e.target.value;
+                                        setEditOptions(next);
+                                      }}
+                                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                      placeholder={`Option ${i + 1}`}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">
+                                Topic
+                              </label>
+
+                              <input
+                                value={editTopic}
+                                onChange={(e) => setEditTopic(e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </div>
+
+                            <div className="flex gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={handleSaveQuestion}
+                                disabled={savingEdit}
+                                className="rounded-lg bg-slate-800 text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                              >
+                                {savingEdit ? "Saving..." : "Save changes"}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingQuestionId(null);
+                                  setError(null);
+                                }}
+                                disabled={savingEdit}
+                                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-slate-800">{q.text}</p>
+
+                              <span
+                                className={`text-xs shrink-0 rounded-full px-2 py-0.5 ${
+                                  q.approved
+                                    ? "bg-emerald-100 text-emerald-700"
+                                    : "bg-amber-100 text-amber-700"
+                                }`}
+                              >
+                                {q.approved ? "approved" : "pending"}
+                              </span>
+                            </div>
+
+                            <ul className="mt-1 text-xs text-slate-500 list-disc list-inside">
+                              {q.options.map((o, i) => (
+                                <li
+                                  key={i}
+                                  className={
+                                    i === q.correctOptionIndex
+                                      ? "text-emerald-700 font-medium"
+                                      : ""
+                                  }
+                                >
+                                  {o}
+                                </li>
+                              ))}
+                            </ul>
+
+                            <div className="mt-2 flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => startEditingQuestion(q)}
+                                className="text-xs font-medium text-violet-700 hover:underline"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </li>
                     ))}
                   </ul>
