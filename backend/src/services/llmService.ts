@@ -17,7 +17,7 @@ export interface GeneratedQuestion {
 
 // Tried in order - if one is overloaded, fall back to the next rather than
 // retrying the same congested model repeatedly.
-const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.0-flash", "gemini-3.6-flash-lite"];
+const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.6-flash-lite"];
 
 function geminiUrl(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;

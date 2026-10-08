@@ -11,6 +11,12 @@ export interface IRosterUploadLog {
   rejectedReasons: string[];
 }
 
+export interface IStudentLoginAttempt {
+  idNumber: string;
+  failedAttempts: number;
+  lockedUntil?: Date | null;
+}
+
 export interface ITest extends Document {
   _id: Types.ObjectId;
   lecturerId: Types.ObjectId;
@@ -27,6 +33,7 @@ export interface ITest extends Document {
   status: TestStatus;
   window: TestWindow;
   rosterUploadLog: IRosterUploadLog[];
+  studentLoginAttempts: IStudentLoginAttempt[];
   createdAt: Date;
 }
 
@@ -54,6 +61,30 @@ const RosterUploadLogSchema = new Schema<IRosterUploadLog>(
 
   { 
     _id: false 
+  }
+);
+
+const StudentLoginAttemptSchema = new Schema<IStudentLoginAttempt>(
+  {
+    idNumber: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    failedAttempts: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    lockedUntil: {
+      type: Date,
+      default: null,
+    },
+  },
+  {
+    _id: false,
   }
 );
 
@@ -137,6 +168,8 @@ const TestSchema = new Schema<ITest>({
   },
 
   rosterUploadLog: [RosterUploadLogSchema],
+
+  studentLoginAttempts: [StudentLoginAttemptSchema],
 
   createdAt: { 
     type: Date, 

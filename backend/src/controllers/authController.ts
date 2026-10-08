@@ -97,14 +97,77 @@ export async function studentLogin(req: Request, res: Response) {
     return res.status(403).json({ error: "ID number is not on this test's roster" });
   }
 
-  // Second-factor access code, hashed at rest, checked with a bcrypt compare (timing-safe).
+  // Second-factor access code, hashed at rest, with test + student
+  // specific brute-force protection.
   if (test.requiresAccessCode) {
     if (!accessCode || !test.accessCodeHash) {
       return res.status(401).json({ error: "Access code required" });
     }
-    const codeValid = await bcrypt.compare(accessCode, test.accessCodeHash);
+
+    const now = new Date();
+
+    let loginAttempt = test.studentLoginAttempts.find(
+      (attempt) => attempt.idNumber === idNumber
+    );
+
+    if (loginAttempt?.lockedUntil && loginAttempt.lockedUntil > now) {
+      return res.status(423).json({
+        error: "Too many failed attempts. Try again later.",
+      });
+    }
+
+    // Clear an expired lock.
+    if (loginAttempt?.lockedUntil && loginAttempt.lockedUntil <= now) {
+      loginAttempt.failedAttempts = 0;
+      loginAttempt.lockedUntil = null;
+    }
+
+    const codeValid = await bcrypt.compare(
+      accessCode,
+      test.accessCodeHash
+    );
+
     if (!codeValid) {
-      return res.status(401).json({ error: "Invalid access code" });
+      if (!loginAttempt) {
+        test.studentLoginAttempts.push({
+          idNumber,
+          failedAttempts: 1,
+          lockedUntil: null,
+        });
+      } else {
+        loginAttempt.failedAttempts += 1;
+
+        if (loginAttempt.failedAttempts >= LOCKOUT_THRESHOLD) {
+          loginAttempt.failedAttempts = 0;
+          loginAttempt.lockedUntil = new Date(
+            Date.now() + LOCKOUT_MINUTES * 60 * 1000
+          );
+        }
+      }
+
+      await test.save();
+
+      const updatedAttempt = test.studentLoginAttempts.find(
+        (attempt) => attempt.idNumber === idNumber
+      );
+
+      if (updatedAttempt?.lockedUntil) {
+        return res.status(423).json({
+          error: "Too many failed attempts. Try again later.",
+        });
+      }
+
+      return res.status(401).json({
+        error: "Invalid access code",
+      });
+    }
+
+    // Successful access-code verification resets the student's
+    // failed-attempt counter for this test.
+    if (loginAttempt) {
+      loginAttempt.failedAttempts = 0;
+      loginAttempt.lockedUntil = null;
+      await test.save();
     }
   }
 
