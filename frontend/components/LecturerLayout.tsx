@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { tokenStore } from "../lib/api";
+import { api, tokenStore } from "../lib/api";
 
 const NAV_ITEMS = [
   { href: "/lecturer/dashboard", label: "Dashboard" },
@@ -14,9 +14,15 @@ export default function LecturerLayout({ children }: { children: React.ReactNode
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  function handleLogout() {
-    tokenStore.clear("lecturerToken");
-    router.push("/lecturer/login");
+  async function handleLogout() {
+    try {
+      await api.logout();
+    } catch (error) {
+      console.error("Logout request failed:", error);
+    } finally {
+      tokenStore.clear("lecturerToken");
+      router.push("/lecturer/login");
+    }
   }
 
   return (

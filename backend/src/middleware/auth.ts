@@ -1,19 +1,35 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyLecturerToken, verifyStudentToken } from "../utils/jwt";
+import {
+  getCookie,
+  LECTURER_COOKIE,
+  STUDENT_COOKIE,
+} from "../utils/authCookies";
 
 export interface AuthedRequest extends Request {
   lecturer?: { id: string };
   student?: { id: string; testId: string; linkToken: string };
 }
 
-function extractBearer(req: Request): string | null {
+function extractToken(
+  req: Request,
+  cookieName: string
+): string | null {
+  const cookieToken = getCookie(req, cookieName);
+
+  if (cookieToken) return cookieToken;
+
   const header = req.headers.authorization;
-  if (!header || !header.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim();
+
+  if (!header || !header.startsWith("Bearer ")) {
+    return null;
+  }
+
+  return header.slice("Bearer ".length).trim() || null;
 }
 
 export function requireLecturer(req: AuthedRequest, res: Response, next: NextFunction) {
-  const token = extractBearer(req);
+  const token = extractToken(req, LECTURER_COOKIE);
   if (!token) return res.status(401).json({ error: "Missing lecturer token" });
   try {
     const payload = verifyLecturerToken(token);
@@ -30,7 +46,7 @@ export function requireLecturer(req: AuthedRequest, res: Response, next: NextFun
  * replayed against another.
  */
 export function requireStudent(req: AuthedRequest, res: Response, next: NextFunction) {
-  const token = extractBearer(req);
+  const token = extractToken(req, STUDENT_COOKIE);
   if (!token) return res.status(401).json({ error: "Missing student token" });
   try {
     const payload = verifyStudentToken(token);

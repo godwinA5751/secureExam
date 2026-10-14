@@ -5,6 +5,12 @@ import { User } from "../models/User";
 import { Test } from "../models/Test";
 import { AuthedRequest } from "../middleware/auth";
 import { signLecturerToken, signStudentToken } from "../utils/jwt";
+import {
+  setAuthCookie,
+  clearAuthCookie,
+  LECTURER_COOKIE,
+  STUDENT_COOKIE,
+} from "../utils/authCookies";
 
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_MINUTES = 15;
@@ -31,8 +37,14 @@ export async function lecturerRegister(req: Request, res: Response) {
 
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await User.create({ role: "lecturer", name, email, passwordHash });
-  const token = signLecturerToken({ sub: user._id.toString(), role: "lecturer" });
-  return res.status(201).json({ token });
+  const token = signLecturerToken({
+    sub: user._id.toString(),
+    role: "lecturer",
+  });
+
+  setAuthCookie(res, LECTURER_COOKIE, token, 12 * 60 * 60 * 1000);
+
+  return res.status(201).json({ ok: true });
 }
 
 const lecturerLoginSchema = z.object({
@@ -71,8 +83,14 @@ export async function lecturerLogin(req: Request, res: Response) {
   user.lockedUntil = null;
   await user.save();
 
-  const token = signLecturerToken({ sub: user._id.toString(), role: "lecturer" });
-  return res.json({ token });
+  const token = signLecturerToken({
+    sub: user._id.toString(),
+    role: "lecturer",
+  });
+
+  setAuthCookie(res, LECTURER_COOKIE, token, 12 * 60 * 60 * 1000);
+
+  return res.json({ ok: true });
 }
 
 const studentLoginSchema = z.object({
@@ -183,9 +201,29 @@ export async function studentLogin(req: Request, res: Response) {
     1,
     Math.floor((test.loginWindowEnd.getTime() - now.getTime()) / 1000)
   );
+
   const token = signStudentToken(
     { sub: student._id.toString(), role: "student", testId: test._id.toString(), linkToken },
     secondsUntilWindowClose
   );
-  return res.json({ token, testId: test._id, durationMinutes: test.durationMinutes });
+
+  setAuthCookie(
+    res,
+    STUDENT_COOKIE, 
+    token,
+    secondsUntilWindowClose * 1000
+  );
+
+  return res.json({ 
+    token, 
+    testId: test._id, 
+    durationMinutes: test.durationMinutes 
+  });
+}
+
+export function logout(req: Request, res: Response) {
+  clearAuthCookie(res, LECTURER_COOKIE);
+  clearAuthCookie(res, STUDENT_COOKIE);
+
+  return res.json({ message: "Logged out successfully" });
 }

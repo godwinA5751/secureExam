@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import { api, tokenStore } from "../../lib/api";
+import { api } from "../../lib/api";
 
 export default function LecturerRegister() {
   const router = useRouter();
@@ -22,8 +22,7 @@ export default function LecturerRegister() {
 
     setLoading(true);
     try {
-      const { token } = await api.lecturerRegister(name, email, password);
-      tokenStore.set("lecturerToken", token);
+      await api.lecturerRegister(name, email, password);
       router.push("/lecturer/dashboard");
     } catch (err: any) {
       setError(err.message);

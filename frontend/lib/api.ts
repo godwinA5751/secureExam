@@ -1,18 +1,29 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000";
 
-async function request<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  _token?: string
+): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers ?? {}),
     },
   });
+
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
+
+  if (!res.ok) {
+    throw new Error(body.error ?? `Request failed (${res.status})`);
+  }
+
   return body as T;
 }
+
 
 // NOTE: sessionStorage is used here for demo simplicity. For production, prefer
 // httpOnly, Secure, SameSite cookies issued by the API so the JWT is never
@@ -32,13 +43,13 @@ export const tokenStore = {
 
 export const api = {
   lecturerLogin: (email: string, password: string) =>
-    request<{ token: string }>("/api/auth/lecturer/login", {
+    request<{ ok: boolean }>("/api/auth/lecturer/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
 
   lecturerRegister: (name: string, email: string, password: string) =>
-    request<{ token: string }>("/api/auth/lecturer/register", {
+    request<{ ok: boolean }>("/api/auth/lecturer/register", {
       method: "POST",
       body: JSON.stringify({ name, email, password }),
     }),
@@ -53,18 +64,25 @@ export const api = {
   uploadRoster: async (token: string, testId: string, file: File) => {
     const form = new FormData();
     form.append("roster", file);
+    
     const res = await fetch(`${API_BASE}/api/tests/${testId}/roster`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
       body: form,
     });
+
     const body = await res.json();
     if (!res.ok) throw new Error(body.error ?? "Upload failed");
     return body as { acceptedCount: number; rejectedCount: number; rejectedReasons: string[] };
   },
 
-    getMe: (token: string) =>
-    request<{ id: string; name: string; email: string; createdAt: string }>("/api/auth/lecturer/me", {}, token),
+  getMe: (token: string) =>
+  request<{ id: string; name: string; email: string; createdAt: string }>("/api/auth/lecturer/me", {}, token),
+
+  logout: () =>
+  request<{ message: string }>("/api/auth/logout", {
+    method: "POST",
+  }),
 
   listMyTests: (token: string) =>
     request<{
