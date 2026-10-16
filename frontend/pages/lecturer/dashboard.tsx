@@ -1,39 +1,25 @@
-import { useEffect, useState } from "react";
+import { useTests, useMe } from "../../lib/hooks";
 import Link from "next/link";
 import LecturerLayout from "../../components/LecturerLayout";
 import { Skeleton, StatCardSkeleton } from "../../components/Skeleton";
-import { api } from "../../lib/api";
 
-type TestRow = {
-  id: string;
-  title: string;
-  status: string;
-  linkToken: string;
-  rosterCount: number;
-  createdAt: string;
-};
+// type TestRow = {
+//   id: string;
+//   title: string;
+//   status: string;
+//   linkToken: string;
+//   rosterCount: number;
+//   createdAt: string;
+// };
 
 export default function Dashboard() {
-  const [tests, setTests] = useState<TestRow[]>([]);
-  const [name, setName] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: testsData, error: testsError, isLoading: testsLoading } = useTests();
+  const { data: me, error: meError, isLoading: meLoading } = useMe();
 
-  useEffect(() => {
-    Promise.all([api.listMyTests(), api.getMe()])
-      .then(([testsRes, meRes]) => {
-        setTests(testsRes.tests);
-        setName(meRes.name);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (!error) return;
-    const t = setTimeout(() => setError(null), 5000);
-    return () => clearTimeout(t);
-  }, [error]);
+  const tests = testsData?.tests ?? [];
+  const name = me?.name ?? "";
+  const loading = testsLoading || meLoading; // true only on the first load, so your skeleton shows once
+  const error = (testsError ?? meError)?.message ?? null;
 
   const published = tests.filter((t) => t.status === "published").length;
   const drafts = tests.filter((t) => t.status === "draft").length;

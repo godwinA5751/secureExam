@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
 import { api } from "../../lib/api";
+import { clearCache } from "../../lib/hooks";
 
 export default function LecturerLogin() {
   const router = useRouter();
@@ -15,12 +16,12 @@ export default function LecturerLogin() {
     setLoading(true);
     try {
       await api.lecturerLogin(email, password);
-      router.push("/lecturer/dashboard");
+      await clearCache();
+      await router.push("/lecturer/dashboard");
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
-      setTimeout(()=>setError(''),5000)
     }
   }
 

@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import { api } from "../../lib/api";
 import { Skeleton } from "../../components/Skeleton";
 import { useProgressMessage } from "../../lib/useProgressMessage";
+import {invalidateTests} from "../../lib/hooks";
 
 type QuestionRow = {
   id: string;
@@ -97,6 +98,7 @@ export default function CreateTest() {
       setLinkToken(test.linkToken);
       setAccessCode(accessCode);
       setQTopic(topics.split(",")[0]?.trim() ?? "");
+      invalidateTests();
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -111,6 +113,7 @@ export default function CreateTest() {
     try {
       const result = await api.uploadRoster(testId, file);
       setRosterMsg(`${result.acceptedCount} student(s) added, ${result.rejectedCount} row(s) rejected.`);
+      invalidateTests();
     } catch (err: any) {
       setError(err.message);
     }
@@ -235,6 +238,7 @@ export default function CreateTest() {
     try {
       await api.generateLink(testId);
       setPublished(true);
+      invalidateTests();
     } catch (err: any) {
       setError(err.message);
     }  finally {

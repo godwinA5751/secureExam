@@ -4,13 +4,14 @@ import Link from "next/link";
 import LecturerLayout from "../../../components/LecturerLayout";
 import { Skeleton } from "../../../components/Skeleton";
 import { api } from "../../../lib/api";
+import { useResults } from "../../../lib/hooks";
 
-type ResultRow = {
-  idNumber: string;
-  status: "submitted" | "auto-submitted";
-  score: number | null;
-  submittedAt: string | null;
-};
+// type ResultRow = {
+//   idNumber: string;
+//   status: "submitted" | "auto-submitted";
+//   score: number | null;
+//   submittedAt: string | null;
+// };
 
 type StatusFilter = "all" | "submitted" | "auto-submitted";
 
@@ -18,29 +19,21 @@ export default function TestResults() {
   const router = useRouter();
   const { testId } = router.query;
 
-  const [results, setResults] = useState<ResultRow[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
+
+  const { data, error: loadError, isLoading: loading } = useResults(
+    typeof testId === "string" ? testId : undefined,
+    true // live: refresh every 5s
+  );
+  const results = data?.results ?? [];
 
   useEffect(() => {
     if (!error) return;
     const t = setTimeout(() => setError(null), 5000);
     return () => clearTimeout(t);
   }, [error]);
-
-  useEffect(() => {
-    if (!router.isReady || typeof testId !== "string") return;
-    setLoading(true);
-    setError(null);
-
-    api
-      .liveResults(testId)
-      .then((response) => setResults(response.results))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [router.isReady, testId]);
 
   const filteredResults = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();

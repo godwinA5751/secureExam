@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { api } from "../../lib/api";
+import { clearCache } from "../../lib/hooks";
 
 export default function LecturerRegister() {
   const router = useRouter();
@@ -29,7 +30,8 @@ export default function LecturerRegister() {
     setLoading(true);
     try {
       await api.lecturerRegister(name, email, password);
-      router.push("/lecturer/dashboard");
+      await clearCache();
+      await router.push("/lecturer/dashboard");
     } catch (err: any) {
       setError(err.message);
     } finally {

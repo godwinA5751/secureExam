@@ -1,38 +1,22 @@
-import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import LecturerLayout from "../../components/LecturerLayout";
 import { Skeleton } from "../../components/Skeleton";
 import { api } from "../../lib/api";
+import { useMe, clearCache } from "../../lib/hooks";
 
 export default function Profile() {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [createdAt, setCreatedAt] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, error: loadError, isLoading: loading } = useMe();
+  const name = data?.name ?? "";
+  const email = data?.email ?? "";
+  const createdAt = data?.createdAt ?? "";
 
-  useEffect(() => {
-    if (!error) return;
-    const t = setTimeout(() => setError(null), 5000);
-    return () => clearTimeout(t);
-  }, [error]);
-
-  useEffect(() => {
-    api
-      .getMe()
-      .then((r) => {
-        setName(r.name);
-        setEmail(r.email);
-        setCreatedAt(r.createdAt);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
+  
 
   async function handleLogout() {
     try {
       await api.logout();
+      clearCache();
     } catch (error) {
       console.error("Logout request failed:", error);
     } finally {
@@ -51,7 +35,7 @@ export default function Profile() {
     <LecturerLayout>
       <h1 className="text-2xl font-semibold text-slate-900 mb-6">Profile</h1>
 
-      {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+      {loadError && <p className="text-sm text-red-600 mb-4">{loadError}</p>}
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md" aria-busy={loading}>
         <div className="flex items-center gap-4 mb-6">

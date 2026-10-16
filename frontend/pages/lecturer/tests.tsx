@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useRouter } from "next/router";
+import { mutate } from "swr";
+import { useTests, keys } from "../../lib/hooks";
 import Link from "next/link";
 import LecturerLayout from "../../components/LecturerLayout";
 import { Skeleton } from "../../components/Skeleton";
@@ -16,11 +17,10 @@ type TestRow = {
 };
 
 export default function Tests() {
-  const router = useRouter();
-  const [tests, setTests] = useState<TestRow[]>([]);
+  const { data, error: loadError, isLoading: loading } = useTests();
+const tests = data?.tests ?? [];
   const [newCode, setNewCode] = useState<{ testId: string; code: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
@@ -30,14 +30,6 @@ export default function Tests() {
     const t = setTimeout(() => setError(null), 5000);
     return () => clearTimeout(t);
   }, [error]);
-
-  useEffect(() => {
-    api
-      .listMyTests()
-      .then((r) => setTests(r.tests))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
 
   async function handleRegenerate(testId: string) {
     setError(null);
@@ -61,10 +53,15 @@ export default function Tests() {
     if (!deleteTarget) return;
 
     setDeletingId(deleteTarget.id);
+    mutate(
+      keys.tests,
+      (cur: { tests: TestRow[] } | undefined) => cur && { tests: cur.tests.filter((t) => t.id !== deleteTarget.id) },
+      { revalidate: false }
+    );
+    mutate(keys.results(deleteTarget.id), undefined, { revalidate: false });
     setError(null);
     try {
       await api.deleteTest(deleteTarget.id);
-      setTests((prev) => prev.filter((test) => test.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (err: any) {
       setError(err.message);

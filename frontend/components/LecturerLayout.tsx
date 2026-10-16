@@ -2,6 +2,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { api } from "../lib/api";
+import { clearCache } from "../lib/hooks";
 
 const NAV_ITEMS = [
   { href: "/lecturer/dashboard", label: "Dashboard" },
@@ -17,6 +18,7 @@ export default function LecturerLayout({ children }: { children: React.ReactNode
   async function handleLogout() {
     try {
       await api.logout();
+      clearCache();
     } catch (error) {
       console.error("Logout request failed:", error);
     } finally {
