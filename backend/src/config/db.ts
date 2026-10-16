@@ -6,7 +6,11 @@ export async function connectDB(): Promise<void> {
     throw new Error("MONGODB_URI is not set. Copy .env.example to .env and fill it in.");
   }
   mongoose.set("strictQuery", true);
-  await mongoose.connect(uri);
+  await mongoose.connect(uri, {
+    maxPoolSize: 20,
+    minPoolSize: 2,
+    serverSelectionTimeoutMS: 10000,
+  });
   // eslint-disable-next-line no-console
   console.log("[db] connected to MongoDB");
 }

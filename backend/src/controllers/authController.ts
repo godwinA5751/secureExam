@@ -11,6 +11,12 @@ import {
   LECTURER_COOKIE,
   STUDENT_COOKIE,
 } from "../utils/authCookies";
+import { LoginThrottle } from "../models/LoginThrottle";
+
+// separate from the lecturer lockout constants
+const STUDENT_MAX_FAILS = 5;
+const STUDENT_LOCK_MS = 15 * 60 * 1000;
+const TOKEN_GRACE_SECONDS = 5 * 60;
 
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_MINUTES = 15;
@@ -115,108 +121,67 @@ export async function studentLogin(req: Request, res: Response) {
     return res.status(403).json({ error: "ID number is not on this test's roster" });
   }
 
-  // Second-factor access code, hashed at rest, with test + student
-  // specific brute-force protection.
+  // Second-factor access code, hashed at rest, with per-test, per-student brute-force protection.
   if (test.requiresAccessCode) {
+    // 1. Locked out? Check before the (slow) bcrypt compare.
+    const throttle = await LoginThrottle.findOne({ testId: test._id, idNumber }).lean();
+    if (throttle?.lockedUntil && throttle.lockedUntil > now) {
+      return res.status(423).json({ error: "Too many failed attempts. Try again later." });
+    }
+
     if (!accessCode || !test.accessCodeHash) {
       return res.status(401).json({ error: "Access code required" });
     }
 
-    const now = new Date();
-
-    let loginAttempt = test.studentLoginAttempts.find(
-      (attempt) => attempt.idNumber === idNumber
-    );
-
-    if (loginAttempt?.lockedUntil && loginAttempt.lockedUntil > now) {
-      return res.status(423).json({
-        error: "Too many failed attempts. Try again later.",
-      });
-    }
-
-    // Clear an expired lock.
-    if (loginAttempt?.lockedUntil && loginAttempt.lockedUntil <= now) {
-      loginAttempt.failedAttempts = 0;
-      loginAttempt.lockedUntil = null;
-    }
-
-    const codeValid = await bcrypt.compare(
-      accessCode,
-      test.accessCodeHash
-    );
+    const codeValid = await bcrypt.compare(accessCode, test.accessCodeHash);
 
     if (!codeValid) {
-      if (!loginAttempt) {
-        test.studentLoginAttempts.push({
-          idNumber,
-          failedAttempts: 1,
-          lockedUntil: null,
-        });
-      } else {
-        loginAttempt.failedAttempts += 1;
-
-        if (loginAttempt.failedAttempts >= LOCKOUT_THRESHOLD) {
-          loginAttempt.failedAttempts = 0;
-          loginAttempt.lockedUntil = new Date(
-            Date.now() + LOCKOUT_MINUTES * 60 * 1000
-          );
-        }
-      }
-
-      await test.save();
-
-      const updatedAttempt = test.studentLoginAttempts.find(
-        (attempt) => attempt.idNumber === idNumber
+      // 2. Record the failure atomically.
+      const t = await LoginThrottle.findOneAndUpdate(
+        { testId: test._id, idNumber },
+        { $inc: { failedAttempts: 1 }, $set: { expireAt: new Date(Date.now() + 24 * 3600 * 1000) } },
+        { upsert: true, new: true }
       );
 
-      if (updatedAttempt?.lockedUntil) {
-        return res.status(423).json({
-          error: "Too many failed attempts. Try again later.",
-        });
+      if (t.failedAttempts >= STUDENT_MAX_FAILS) {
+        await LoginThrottle.updateOne(
+          { _id: t._id },
+          { $set: { lockedUntil: new Date(Date.now() + STUDENT_LOCK_MS), failedAttempts: 0 } }
+        );
+        return res.status(423).json({ error: "Too many failed attempts. Try again later." });
       }
-
-      return res.status(401).json({
-        error: "Invalid access code",
-      });
+      return res.status(401).json({ error: "Invalid access code" });
     }
 
-    // Successful access-code verification resets the student's
-    // failed-attempt counter for this test.
-    if (loginAttempt) {
-      loginAttempt.failedAttempts = 0;
-      loginAttempt.lockedUntil = null;
-      await test.save();
-    }
+    // 3. Success: clear old failures (only if there were any, to save an op).
+    if (throttle) await LoginThrottle.deleteOne({ testId: test._id, idNumber });
   }
 
-  let student = await User.findOne({ role: "student", idNumber });
-  if (!student) {
-    // Roster upload implicitly provisions the student account (documented v1.0 behavior).
-    student = await User.create({ role: "student", idNumber, name: idNumber });
-  } else if (student.lockedUntil && student.lockedUntil > now) {
-    return res.status(423).json({ error: "Too many failed attempts. Try again later." });
-  }
-
-  const secondsUntilWindowClose = Math.max(
-    1,
-    Math.floor((test.loginWindowEnd.getTime() - now.getTime()) / 1000)
+  // Find or create the student in one atomic op. This avoids a duplicate-key 500
+  // when a new student's first login arrives twice at once.
+  const student = await User.findOneAndUpdate(
+    { idNumber },
+    { $setOnInsert: { role: "student", name: idNumber } },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+  if (!student) return res.status(500).json({ error: "Login failed" });
+
+  // Token outlives the login window slightly so a final heartbeat or submit at the
+  // deadline doesn't 401. Every attempt endpoint still checks the attempt's own
+  // deadline and status, and /start still rejects new logins after the window closes.
+  const tokenLifetimeSeconds =
+    Math.max(1, Math.floor((test.loginWindowEnd.getTime() - now.getTime()) / 1000)) + TOKEN_GRACE_SECONDS;
 
   const token = signStudentToken(
     { sub: student._id.toString(), role: "student", testId: test._id.toString(), linkToken },
-    secondsUntilWindowClose
+    tokenLifetimeSeconds
   );
 
-  setAuthCookie(
-    res,
-    STUDENT_COOKIE, 
-    token,
-    secondsUntilWindowClose * 1000
-  );
+  setAuthCookie(res, STUDENT_COOKIE, token, tokenLifetimeSeconds * 1000);
 
-  return res.json({ 
-    testId: test._id, 
-    durationMinutes: test.durationMinutes 
+  return res.json({
+    testId: test._id,
+    durationMinutes: test.durationMinutes,
   });
 }
 

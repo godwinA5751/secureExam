@@ -136,7 +136,7 @@ export default function StudentTest() {
           )}
         </div>
       </div>
-      <div className="overflow-y-auto max-w-2xl mx-auto pt-20 pb-4 bg-gray-400">
+      <div className="overflow-y-auto max-w-2xl mx-auto pt-20 pb-4">
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
         <div className="space-y-6">

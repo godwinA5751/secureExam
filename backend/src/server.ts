@@ -1,12 +1,15 @@
 import "dotenv/config";
 import app from "./app";
 import { connectDB } from "./config/db";
-import {Test} from "./models/Test"
+import {Test} from "./models/Test";
+import { Question } from "./models/Question";
+import { Attempt } from "./models/Attempt";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 
 async function main() {
   await connectDB();
+  await Promise.all([Test.syncIndexes(), Question.syncIndexes(), Attempt.syncIndexes()]);
   setInterval(async()=>{
     try{
       const now = new Date();

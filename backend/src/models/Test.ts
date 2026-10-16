@@ -11,12 +11,6 @@ export interface IRosterUploadLog {
   rejectedReasons: string[];
 }
 
-export interface IStudentLoginAttempt {
-  idNumber: string;
-  failedAttempts: number;
-  lockedUntil?: Date | null;
-}
-
 export interface ITest extends Document {
   _id: Types.ObjectId;
   lecturerId: Types.ObjectId;
@@ -33,7 +27,6 @@ export interface ITest extends Document {
   status: TestStatus;
   window: TestWindow;
   rosterUploadLog: IRosterUploadLog[];
-  studentLoginAttempts: IStudentLoginAttempt[];
   createdAt: Date;
 }
 
@@ -64,36 +57,11 @@ const RosterUploadLogSchema = new Schema<IRosterUploadLog>(
   }
 );
 
-const StudentLoginAttemptSchema = new Schema<IStudentLoginAttempt>(
-  {
-    idNumber: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    failedAttempts: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    lockedUntil: {
-      type: Date,
-      default: null,
-    },
-  },
-  {
-    _id: false,
-  }
-);
-
 const TestSchema = new Schema<ITest>({
   lecturerId: { 
     type: Schema.Types.ObjectId, 
     ref: "User", 
     required: true, 
-    index: true 
   },
 
   title: { 
@@ -139,10 +107,7 @@ const TestSchema = new Schema<ITest>({
     required: true 
   },
 
-  allowedStudents: [{ 
-    type: String, 
-    index: true 
-  }],
+  allowedStudents: [String],
 
   requiresAccessCode: { 
     type: Boolean, 
@@ -169,12 +134,13 @@ const TestSchema = new Schema<ITest>({
 
   rosterUploadLog: [RosterUploadLogSchema],
 
-  studentLoginAttempts: [StudentLoginAttemptSchema],
-
   createdAt: { 
     type: Date, 
     default: Date.now 
   },
 });
+
+TestSchema.index({ loginWindowEnd: 1 }, { partialFilterExpression: { window: "opened" } });// auto-close job
+TestSchema.index({ lecturerId: 1, createdAt: -1 }); 
 
 export const Test = model<ITest>("Test", TestSchema);

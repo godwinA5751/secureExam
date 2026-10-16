@@ -14,8 +14,7 @@ const QuestionSchema = new Schema<IQuestion>({
   testId: { 
     type: Schema.Types.ObjectId, 
     ref: "Test", 
-    required: true, 
-    index: true 
+    required: true,
   },
 
   text: { 
@@ -45,6 +44,8 @@ const QuestionSchema = new Schema<IQuestion>({
     default: false 
   },
 });
+
+QuestionSchema.index({ testId: 1, approved: 1 });
 
 export const Question = model<IQuestion>("Question", QuestionSchema);
 

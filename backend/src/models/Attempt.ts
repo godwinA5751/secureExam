@@ -99,5 +99,9 @@ AttemptSchema.index(
     unique: true 
   }
 );
+AttemptSchema.index(
+  { deadline: 1 },
+  { partialFilterExpression: { status: "in-progress" } }
+);
 
 export const Attempt = model<IAttempt>("Attempt", AttemptSchema);
