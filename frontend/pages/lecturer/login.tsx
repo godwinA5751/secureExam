@@ -20,6 +20,7 @@ export default function LecturerLogin() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setTimeout(()=>setError(''),5000)
     }
   }
 

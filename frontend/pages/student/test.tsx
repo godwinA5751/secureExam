@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
-import { api, tokenStore } from "../../lib/api";
+import { api } from "../../lib/api";
 
 type Question = { id: string; text: string; options: string[] };
 
@@ -15,38 +15,40 @@ export default function StudentTest() {
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const submittedRef = useRef(false);
+  const [loading, setLoading] = useState(false);
 
-  const token = typeof window !== "undefined" ? tokenStore.get("studentToken") : null;
 
   // Bootstrap: start (or resume) the attempt, then load questions.
   useEffect(() => {
-    if (!linkToken || !token) return;
+    if (!linkToken) return;
     (async () => {
       try {
-        const start = await api.startAttempt(token, linkToken);
+        const start = await api.startAttempt(linkToken);
         if (start.status !== "in-progress") {
           setStatus("ended");
           return;
         }
         setDeadline(start.deadline);
-        const q = await api.getQuestions(token, linkToken);
+        const q = await api.getQuestions(linkToken);
         setQuestions(q.questions);
         setStatus("in-progress");
       } catch (err: any) {
         setError(err.message);
         setStatus("ended");
+      } finally{
+        setTimeout(() => {setError('')}, 2000)
       }
     })();
-  }, [linkToken, token]);
+  }, [linkToken]);
 
   // Countdown + periodic heartbeat (also acts as the deadline enforcement ping).
   useEffect(() => {
-    if (!deadline || status !== "in-progress" || !token || !linkToken) return;
+    if (!deadline || status !== "in-progress" || !linkToken) return;
     const interval = setInterval(async () => {
       const secs = Math.max(0, Math.floor((new Date(deadline).getTime() - Date.now()) / 1000));
       setRemaining(secs);
       try {
-        const hb = await api.heartbeat(token, linkToken);
+        const hb = await api.heartbeat(linkToken);
         if (hb.status !== "in-progress" && !submittedRef.current) {
           submittedRef.current = true;
           setStatus("ended");
@@ -56,17 +58,17 @@ export default function StudentTest() {
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [deadline, status, token, linkToken]);
+  }, [deadline, status, linkToken]);
 
   // Tab-visibility anti-cheat: any loss of focus/visibility ends the attempt immediately.
   useEffect(() => {
-    if (status !== "in-progress" || !token || !linkToken) return;
+    if (status !== "in-progress" || !linkToken) return;
 
     async function reportAndEnd(type: "blur" | "hidden") {
       if (submittedRef.current) return;
       submittedRef.current = true;
       try {
-        await api.heartbeat(token!, linkToken!, type);
+        await api.heartbeat(linkToken!, type);
       } finally {
         setStatus("ended");
       }
@@ -83,25 +85,29 @@ export default function StudentTest() {
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [status, token, linkToken]);
+  }, [status, linkToken]);
 
   async function handleAnswer(questionId: string, index: number) {
-    if (!token || !linkToken) return;
+    if (!linkToken) return;
     setAnswers((prev) => ({ ...prev, [questionId]: index }));
     try {
-      await api.saveAnswer(token, linkToken, questionId, index);
+      await api.saveAnswer(linkToken, questionId, index);
     } catch (err: any) {
       setError(err.message);
+    } finally{
+      setTimeout(() => {setError('')}, 2000)
     }
   }
 
   async function handleSubmit() {
-    if (!token || !linkToken || submittedRef.current) return;
+    if (!linkToken || submittedRef.current) return;
     submittedRef.current = true;
     try {
-      const result = await api.submit(token, linkToken);
+      setLoading(true);
+      const result = await api.submit(linkToken);
       setFinalScore(result.score);
     } finally {
+      setLoading(false);
       setStatus("ended");
     }
   }
@@ -119,9 +125,9 @@ export default function StudentTest() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8">
-      <div className="max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+    <div className="h-screen bg-slate-50 px-4 py-8">
+      <div className="mx-auto fixed top-0 left-0 right-0 bg-slate-50 border-b border-slate-200 p-4 z-10">
+        <div className="flex items-center justify-between">
           <h1 className="text-base font-semibold text-slate-800">SecureExam</h1>
           {remaining !== null && (
             <span className="text-sm font-mono text-slate-600">
@@ -129,7 +135,8 @@ export default function StudentTest() {
             </span>
           )}
         </div>
-
+      </div>
+      <div className="overflow-y-auto max-w-2xl mx-auto pt-20 pb-4 bg-gray-400">
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
         <div className="space-y-6">
@@ -157,9 +164,10 @@ export default function StudentTest() {
 
         <button
           onClick={handleSubmit}
-          className="mt-8 w-full rounded-lg bg-slate-900 text-white py-3 text-sm font-medium"
+          disabled={submittedRef.current || loading}
+          className="mt-8 w-full rounded-lg bg-slate-900 text-white py-3 text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Submit test
+          {loading ? "Submitting..." : "Submit test"}
         </button>
       </div>
     </div>

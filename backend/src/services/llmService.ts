@@ -17,7 +17,11 @@ export interface GeneratedQuestion {
 
 // Tried in order - if one is overloaded, fall back to the next rather than
 // retrying the same congested model repeatedly.
-const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.6-flash-lite"];
+// Tried in order. Override without a code change: GEMINI_MODELS=model-a,model-b in .env
+const GEMINI_MODELS = (process.env.GEMINI_MODELS ?? "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite")
+  .split(",")
+  .map((m) => m.trim())
+  .filter(Boolean);
 
 function geminiUrl(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
@@ -69,7 +73,7 @@ function validate(raw: unknown, allowedTopics: string[]): GeneratedQuestion[] {
 
 async function callGemini(apiKey: string, prompt: string): Promise<string> {
   const attemptsPerModel = 2;
-  let lastError = "";
+  const failures: string[] = [];
 
   for (const model of GEMINI_MODELS) {
     for (let attempt = 1; attempt <= attemptsPerModel; attempt++) {
@@ -93,24 +97,29 @@ async function callGemini(apiKey: string, prompt: string): Promise<string> {
         return textOut;
       }
 
-      // 429 (rate limit) and 503 (overloaded) are transient - worth retrying, then
-      // falling back to the next model. Anything else fails immediately.
-      if (res.status !== 429 && res.status !== 503) {
-        const errBody = await res.text().catch(() => "");
-        throw new Error(`Gemini API error (${res.status}, ${model}): ${errBody.slice(0, 300)}`);
+      const errBody = await res.text().catch(() => "");
+
+      // 404: this model name is retired or invalid. Retrying is pointless, so go to the next model.
+      if (res.status === 404) {
+        failures.push(`${model}: not found`);
+        break;
       }
 
-      lastError = await res.text().catch(() => `HTTP ${res.status}`);
-      if (attempt < attemptsPerModel) {
-        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1))); // 1s, then 2s
+      // 429 / 503: transient. Retry this model, then fall back to the next.
+      if (res.status === 429 || res.status === 503) {
+        failures.push(`${model}: ${res.status}`);
+        if (attempt < attemptsPerModel) {
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+        }
+        continue;
       }
+
+      // 400 / 401 / 403 etc. are real problems (bad key, bad request). Fail immediately.
+      throw new Error(`Gemini API error (${res.status}, ${model}): ${errBody.slice(0, 300)}`);
     }
-    // Exhausted retries for this model - try the next one in the list.
   }
 
-  throw new Error(
-    `All Gemini models are currently overloaded. Try again in a minute. (${lastError.slice(0, 200)})`
-  );
+  throw new Error(`All Gemini models failed. ${failures.join("; ")}`);
 }
 
 export async function generateQuestionsForTopics(

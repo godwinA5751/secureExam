@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
-import { api, tokenStore } from "../../lib/api";
+import { api } from "../../lib/api";
 
 export default function StudentLogin() {
   const router = useRouter();
@@ -16,13 +16,13 @@ export default function StudentLogin() {
     setError(null);
     setLoading(true);
     try {
-      const { token } = await api.studentLogin(linkToken, idNumber, accessCode);
-      tokenStore.set("studentToken", token);
+      await api.studentLogin(linkToken, idNumber, accessCode);
       router.push({ pathname: "/student/test", query: { linkToken } });
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
+      setTimeout(() => { setError('')}, 2000)
     }
   }
 

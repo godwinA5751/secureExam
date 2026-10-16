@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { api, tokenStore } from "../lib/api";
+import { api } from "../lib/api";
 
 const NAV_ITEMS = [
   { href: "/lecturer/dashboard", label: "Dashboard" },
@@ -20,7 +20,6 @@ export default function LecturerLayout({ children }: { children: React.ReactNode
     } catch (error) {
       console.error("Logout request failed:", error);
     } finally {
-      tokenStore.clear("lecturerToken");
       router.push("/lecturer/login");
     }
   }
@@ -28,7 +27,7 @@ export default function LecturerLayout({ children }: { children: React.ReactNode
   return (
     <div className="min-h-screen bg-[#f7f7fb]">
       <nav className="sticky top-0 z-20 bg-[#14133b] text-white">
-        <div className="max-w-5xl mx-auto px-4">
+        <div className="mx-auto px-4">
           <div className="flex items-center justify-between h-14">
             <Link href="/lecturer/dashboard" className="flex items-center gap-2 font-semibold tracking-tight">
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-violet-500 text-xs">
@@ -99,7 +98,7 @@ export default function LecturerLayout({ children }: { children: React.ReactNode
         )}
       </nav>
 
-      <main className="max-w-5xl mx-auto px-4 py-8">{children}</main>
+      <main className="mx-auto p-8">{children}</main>
     </div>
   );
 }

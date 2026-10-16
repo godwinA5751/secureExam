@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import { api, tokenStore } from "../../lib/api";
+import { api } from "../../lib/api";
+import { Skeleton } from "../../components/Skeleton";
+import { useProgressMessage } from "../../lib/useProgressMessage";
 
 type QuestionRow = {
   id: string;
@@ -40,28 +42,49 @@ export default function CreateTest() {
 
   const [savingEdit, setSavingEdit] = useState(false);
 
-  const token = () => tokenStore.get("lecturerToken");
+  const [creating, setCreating] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+
+  const aiMessages = useMemo(() => {
+    const topicList = topics.split(",").map((s) => s.trim()).filter(Boolean)
+    return [
+      "Reading your topics…",
+      ...topicList.map((t) => `Researching “${t}”…`),
+      "Drafting questions…",
+      "Writing answer options…",
+      "Checking the correct answers…",
+      "Combining everything into a test…",
+      "Almost there…",
+      "Taking a little longer than usual…", // shown if Gemini is busy and we're retrying
+    ];
+  }, [topics]);
+
+  const aiMessage = useProgressMessage(aiLoading, aiMessages, 2500);
+
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 5000);
+    return () => clearTimeout(t);
+  }, [error]);
 
   async function refreshQuestions(id: string) {
-    const t = token();
-    if (!t) return;
-    const { questions } = await api.listQuestions(t, id);
+    const { questions } = await api.listQuestions(id);
     setQuestions(questions);
   }
 
   useEffect(() => {
-    if (testId) refreshQuestions(testId);
+    if (testId) refreshQuestions(testId).catch((err) => setError(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testId]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    if (creating) return;
     setError(null);
-    const t = token();
-    if (!t) return router.push("/lecturer/login");
+    setCreating(true);
 
     try {
-      const { test, accessCode } = await api.createTest(t, {
+      const { test, accessCode } = await api.createTest({
         title,
         topics: topics.split(",").map((s) => s.trim()).filter(Boolean),
         loginWindowStart: new Date(start).toISOString(),
@@ -75,16 +98,18 @@ export default function CreateTest() {
       setAccessCode(accessCode);
       setQTopic(topics.split(",")[0]?.trim() ?? "");
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message)
+    } finally {
+      setCreating(false);
     }
+    
   }
 
   async function handleRoster(e: React.ChangeEvent<HTMLInputElement>) {
-    const t = token();
     const file = e.target.files?.[0];
-    if (!t || !testId || !file) return;
+    if (!testId || !file) return;
     try {
-      const result = await api.uploadRoster(t, testId, file);
+      const result = await api.uploadRoster(testId, file);
       setRosterMsg(`${result.acceptedCount} student(s) added, ${result.rejectedCount} row(s) rejected.`);
     } catch (err: any) {
       setError(err.message);
@@ -92,12 +117,11 @@ export default function CreateTest() {
   }
 
   async function handleGenerateAI() {
-    const t = token();
-    if (!t || !testId) return;
+    if (!testId) return;
     setError(null);
     setAiLoading(true);
     try {
-      await api.generateQuestions(t, testId);
+      await api.generateQuestions(testId);
       await refreshQuestions(testId);
     } catch (err: any) {
       setError(err.message);
@@ -108,11 +132,10 @@ export default function CreateTest() {
 
   async function handleAddManual(e: React.FormEvent) {
     e.preventDefault();
-    const t = token();
-    if (!t || !testId) return;
+    if (!testId) return;
     setError(null);
     try {
-      await api.addManualQuestion(t, testId, {
+      await api.addManualQuestion(testId, {
         text: qText,
         options: qOptions.filter((o) => o.trim().length > 0),
         correctOptionIndex: qCorrect,
@@ -124,7 +147,7 @@ export default function CreateTest() {
       await refreshQuestions(testId);
     } catch (err: any) {
       setError(err.message);
-    }
+    } 
   }
 
   function startEditingQuestion(q: QuestionRow) {
@@ -137,9 +160,8 @@ export default function CreateTest() {
   }
 
   async function handleSaveQuestion() {
-    const t = token();
 
-    if (!t || !testId || !editingQuestionId) {
+    if (!testId || !editingQuestionId) {
       return;
     }
 
@@ -170,7 +192,6 @@ export default function CreateTest() {
       }
 
       await api.updateQuestion(
-        t,
         testId,
         editingQuestionId,
         {
@@ -196,12 +217,11 @@ export default function CreateTest() {
   }
 
   async function handleApproveAll() {
-    const t = token();
-    if (!t || !testId) return;
+    if (!testId) return;
     const unapprovedIds = questions.filter((q) => !q.approved).map((q) => q.id);
     if (unapprovedIds.length === 0) return;
     try {
-      await api.approveQuestions(t, testId, unapprovedIds);
+      await api.approveQuestions(testId, unapprovedIds);
       await refreshQuestions(testId);
     } catch (err: any) {
       setError(err.message);
@@ -209,14 +229,16 @@ export default function CreateTest() {
   }
 
   async function handlePublish() {
-    const t = token();
-    if (!t || !testId) return;
+    if (!testId || publishing) return;
     setError(null);
+    setPublishing(true);
     try {
-      await api.generateLink(t, testId);
+      await api.generateLink(testId);
       setPublished(true);
     } catch (err: any) {
       setError(err.message);
+    }  finally {
+      setPublishing(false);
     }
   }
 
@@ -226,9 +248,13 @@ export default function CreateTest() {
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
       <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-        <h1 className="text-lg font-semibold text-slate-800 mb-6">Create test</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-lg font-semibold text-slate-800">Create test</h1>
+          <button onClick={() => router.push("/lecturer/tests")} className="text-md text-slate-600 rounded-full w-8 h-8 bg-slate-100 font-bold">
+            x
+          </button>
+        </div>
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
-
         {!testId && (
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
@@ -259,8 +285,9 @@ export default function CreateTest() {
                 onChange={(e) => setDuration(Number(e.target.value))}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </div>
-            <button type="submit" className="w-full rounded-lg bg-slate-900 text-white py-2 text-sm font-medium">
-              Create test
+            <button type="submit" disabled={creating}
+              className="w-full rounded-lg bg-slate-900 text-white py-2 text-sm font-medium disabled:opacity-50">
+              {creating ? "Creating..." : "Create test"}
             </button>
           </form>
         )}
@@ -285,9 +312,22 @@ export default function CreateTest() {
               <button
                 onClick={handleGenerateAI}
                 disabled={aiLoading}
-                className="w-full rounded-lg border border-slate-300 py-2 text-sm font-medium text-slate-700 disabled:opacity-50 mb-4"
+                className={`w-full rounded-lg border py-2 text-sm font-medium mb-4 flex items-center justify-center gap-2 ${
+                  aiLoading
+                    ? "cursor-wait border-violet-200 bg-violet-50 text-violet-700"
+                    : "border-slate-300 text-slate-700 disabled:opacity-50"
+                }`}
               >
-                {aiLoading ? "Generating..." : "Generate questions with AI"}
+                {aiLoading ? (
+                  <>
+                    <Spinner />
+                    <span key={aiMessage} className="fade-in" aria-live="polite">
+                      {aiMessage}
+                    </span>
+                  </>
+                ) : (
+                  "Generate questions with AI"
+                )}
               </button>
 
               <form onSubmit={handleAddManual} className="space-y-2 mb-4 bg-slate-50 rounded-lg p-4">
@@ -326,9 +366,11 @@ export default function CreateTest() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-slate-500">
-                      {approvedCount} approved, {unapprovedCount} pending review
+                      {aiLoading
+                        ? "New questions will appear below"
+                        : `${approvedCount} approved, ${unapprovedCount} pending review`}
                     </p>
-                    {unapprovedCount > 0 && (
+                    {!aiLoading && unapprovedCount > 0 && (
                       <button onClick={handleApproveAll} className="text-xs font-medium text-emerald-700 underline">
                         Approve all pending
                       </button>
@@ -462,6 +504,7 @@ export default function CreateTest() {
                         )}
                       </li>
                     ))}
+                    {aiLoading && <QuestionSkeletonRows count={4} />}
                   </ul>
                 </div>
               )}
@@ -469,10 +512,10 @@ export default function CreateTest() {
 
             <button
               onClick={handlePublish}
-              disabled={approvedCount === 0}
+              disabled={approvedCount === 0 || aiLoading || publishing}
               className="w-full rounded-lg bg-emerald-700 text-white py-2 text-sm font-medium disabled:opacity-50"
             >
-              Publish test
+              {publishing ? "Publishing..." : "Publish test"}
             </button>
             {approvedCount === 0 && (
               <p className="text-xs text-slate-400 -mt-4">Add or approve at least one question to publish.</p>
@@ -514,4 +557,35 @@ export default function CreateTest() {
 function studentLoginUrl(linkToken: string): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return `${origin}/student/login?linkToken=${linkToken}`;
+}
+
+function QuestionSkeletonRows({ count }: { count: number }) {
+  const titleWidths = ["w-3/4", "w-2/3", "w-5/6", "w-1/2"];
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <li key={`skeleton-${i}`} className="p-3" aria-hidden="true">
+          <div className="flex items-start justify-between gap-2">
+            <Skeleton className={`h-4 ${titleWidths[i % titleWidths.length]}`} />
+            <Skeleton className="h-5 w-16 rounded-full shrink-0" />
+          </div>
+          <div className="mt-2 space-y-1.5">
+            <Skeleton className="h-3 w-40" />
+            <Skeleton className="h-3 w-36" />
+            <Skeleton className="h-3 w-44" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+        </li>
+      ))}
+    </>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
 }

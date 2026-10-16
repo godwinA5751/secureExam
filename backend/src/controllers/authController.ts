@@ -215,7 +215,6 @@ export async function studentLogin(req: Request, res: Response) {
   );
 
   return res.json({ 
-    token, 
     testId: test._id, 
     durationMinutes: test.durationMinutes 
   });

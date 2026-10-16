@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useRouter } from "next/router";
 import Link from "next/link";
 import LecturerLayout from "../../components/LecturerLayout";
-import { api, tokenStore } from "../../lib/api";
+import { Skeleton, StatCardSkeleton } from "../../components/Skeleton";
+import { api } from "../../lib/api";
 
 type TestRow = {
   id: string;
@@ -14,26 +14,26 @@ type TestRow = {
 };
 
 export default function Dashboard() {
-  const router = useRouter();
   const [tests, setTests] = useState<TestRow[]>([]);
   const [name, setName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = tokenStore.get("lecturerToken");
-    if (!token) {
-      router.push("/lecturer/login");
-      return;
-    }
-    Promise.all([api.listMyTests(token), api.getMe(token)])
+    Promise.all([api.listMyTests(), api.getMe()])
       .then(([testsRes, meRes]) => {
         setTests(testsRes.tests);
         setName(meRes.name);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [router]);
+  }, []);
+
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 5000);
+    return () => clearTimeout(t);
+  }, [error]);
 
   const published = tests.filter((t) => t.status === "published").length;
   const drafts = tests.filter((t) => t.status === "draft").length;
@@ -43,15 +43,22 @@ export default function Dashboard() {
   return (
     <LecturerLayout>
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-slate-900">
-          {name ? `Welcome back, ${name.split(" ")[0]}` : "Dashboard"}
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">Here's what's happening across your tests.</p>
+        {loading ? (
+          <Skeleton className="h-8 w-64" />
+        ) : (
+          <h1 className="text-2xl font-semibold text-slate-900">
+            {name ? `Welcome back, ${name.split(" ")[0]}` : "Dashboard"}
+          </h1>
+        )}
+        {/* Static text: no reason to hide it while loading */}
+        <p className="text-sm text-slate-500 mt-1">Here&apos;s what&apos;s happening across your tests.</p>
       </div>
 
       {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
-      {!loading && (
+      {loading ? (
+        <DashboardSkeleton />
+      ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
             <StatCard label="Total tests" value={tests.length} accent="bg-violet-500" />
@@ -95,6 +102,36 @@ export default function Dashboard() {
         </>
       )}
     </LecturerLayout>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading dashboard">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <StatCardSkeleton key={i} />
+        ))}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+        <ul className="divide-y divide-slate-100">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <li key={i} className="py-3 flex items-center justify-between">
+              <div className="space-y-2">
+                <Skeleton className={`h-4 ${["w-48", "w-40", "w-56", "w-44"][i]}`} />
+                <Skeleton className="h-3 w-32" />
+              </div>
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 

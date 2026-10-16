@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import LecturerLayout from "../../components/LecturerLayout";
-import { api, tokenStore } from "../../lib/api";
+import { Skeleton } from "../../components/Skeleton";
+import { api } from "../../lib/api";
 
 export default function Profile() {
   const router = useRouter();
@@ -9,26 +10,34 @@ export default function Profile() {
   const [email, setEmail] = useState("");
   const [createdAt, setCreatedAt] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = tokenStore.get("lecturerToken");
-    if (!token) {
-      router.push("/lecturer/login");
-      return;
-    }
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 5000);
+    return () => clearTimeout(t);
+  }, [error]);
+
+  useEffect(() => {
     api
-      .getMe(token)
+      .getMe()
       .then((r) => {
         setName(r.name);
         setEmail(r.email);
         setCreatedAt(r.createdAt);
       })
-      .catch((err) => setError(err.message));
-  }, [router]);
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
-  function handleLogout() {
-    tokenStore.clear("lecturerToken");
-    router.push("/lecturer/login");
+  async function handleLogout() {
+    try {
+      await api.logout();
+    } catch (error) {
+      console.error("Logout request failed:", error);
+    } finally {
+      router.push("/lecturer/login");
+    }
   }
 
   const initials = name
@@ -44,15 +53,27 @@ export default function Profile() {
 
       {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md" aria-busy={loading}>
         <div className="flex items-center gap-4 mb-6">
-          <div className="h-14 w-14 rounded-full bg-violet-600 text-white flex items-center justify-center text-lg font-semibold">
-            {initials || "?"}
-          </div>
-          <div>
-            <p className="text-base font-semibold text-slate-900">{name}</p>
-            <p className="text-sm text-slate-500">{email}</p>
-          </div>
+          {loading ? (
+            <>
+              <Skeleton className="h-14 w-14 rounded-full shrink-0" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3.5 w-52" />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="h-14 w-14 rounded-full bg-violet-600 text-white flex items-center justify-center text-lg font-semibold">
+                {initials || "?"}
+              </div>
+              <div>
+                <p className="text-base font-semibold text-slate-900">{name}</p>
+                <p className="text-sm text-slate-500">{email}</p>
+              </div>
+            </>
+          )}
         </div>
 
         <dl className="text-sm divide-y divide-slate-100">
@@ -60,10 +81,16 @@ export default function Profile() {
             <dt className="text-slate-500">Role</dt>
             <dd className="text-slate-800 font-medium">Lecturer</dd>
           </div>
-          <div className="flex justify-between py-2">
+          <div className="flex justify-between items-center py-2">
             <dt className="text-slate-500">Member since</dt>
             <dd className="text-slate-800 font-medium">
-              {createdAt ? new Date(createdAt).toLocaleDateString() : "-"}
+              {loading ? (
+                <Skeleton className="h-4 w-20" />
+              ) : createdAt ? (
+                new Date(createdAt).toLocaleDateString()
+              ) : (
+                "-"
+              )}
             </dd>
           </div>
         </dl>
