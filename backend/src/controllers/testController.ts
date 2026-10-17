@@ -134,9 +134,19 @@ export async function listMyTests(req: AuthedRequest, res: Response) {
   });
 }
 
+/** Questions on a published test are frozen: students may already be sitting it. */
+function rejectIfPublished(test: { status: string }, res: Response): boolean {
+  if (test.status === "published") {
+    res.status(400).json({ error: "This test is published, so its questions can no longer be changed" });
+    return true;
+  }
+  return false;
+}
+
 export async function generateQuestions(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
+  if (rejectIfPublished(test, res)) return;
 
   try {
     const generated = await generateQuestionsForTopics(test.topics);
@@ -148,7 +158,8 @@ export async function generateQuestions(req: AuthedRequest, res: Response) {
       note: "Questions require lecturer review/approval before the test can be published.",
     });
   } catch (e: any) {
-    return res.status(500).json({ error: e.message });
+    console.error("[generateQuestions] failed:", e);
+    return res.status(502).json({ error: "Question generation failed. Please try again." });
   }
 }
 
@@ -302,7 +313,7 @@ export async function deleteTest(req: AuthedRequest, res: Response) {
 }
 
 const approveSchema = z.object({
-  approvedQuestionIds: z.array(z.string()).min(1),
+  approvedQuestionIds: z.array(z.string().regex(/^[a-f\d]{24}$/i)).min(1),
 });
 
 export async function reviewQuestions(req: AuthedRequest, res: Response) {

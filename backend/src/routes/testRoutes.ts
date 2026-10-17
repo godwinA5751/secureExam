@@ -1,6 +1,8 @@
 import { Router } from "express";
 import multer from "multer";
 import { requireLecturer } from "../middleware/auth";
+import { objectIdParam } from "../middleware/validateObjectId";
+import { asyncHandler as h } from "../utils/asyncHandler";
 import {
   createTest,
   listMyTests,
@@ -14,7 +16,7 @@ import {
   regenerateAccessCode,
   liveResults,
   exportResults,
-  deleteTest
+  deleteTest,
 } from "../controllers/testController";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
@@ -22,18 +24,22 @@ const router = Router();
 
 router.use(requireLecturer);
 
-router.get("/", listMyTests);
-router.post("/", createTest);
-router.post("/:id/roster", upload.single("roster"), uploadRoster);
-router.post("/:id/generate-questions", generateQuestions);
-router.get("/:id/questions", listQuestions);
-router.post("/:id/questions/manual", addManualQuestion);
-router.patch("/:id/questions/:questionId", updateQuestion);
-router.patch("/:id/questions", reviewQuestions);
-router.post("/:id/link", generateLink);
-router.post("/:id/access-code/regenerate", regenerateAccessCode);
-router.get("/:id/results", liveResults);
-router.get("/:id/export", exportResults);
-router.delete("/:id", deleteTest);
+// Malformed IDs get a controlled 400 before any database query.
+router.param("id", objectIdParam);
+router.param("questionId", objectIdParam);
+
+router.get("/", h(listMyTests));
+router.post("/", h(createTest));
+router.post("/:id/roster", upload.single("roster"), h(uploadRoster));
+router.post("/:id/generate-questions", h(generateQuestions));
+router.get("/:id/questions", h(listQuestions));
+router.post("/:id/questions/manual", h(addManualQuestion));
+router.patch("/:id/questions/:questionId", h(updateQuestion));
+router.patch("/:id/questions", h(reviewQuestions));
+router.post("/:id/link", h(generateLink));
+router.post("/:id/access-code/regenerate", h(regenerateAccessCode));
+router.get("/:id/results", h(liveResults));
+router.get("/:id/export", h(exportResults));
+router.delete("/:id", h(deleteTest));
 
 export default router;

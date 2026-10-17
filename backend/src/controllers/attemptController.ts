@@ -5,6 +5,8 @@ import { Test } from "../models/Test";
 import { Question, toStudentSafeQuestion } from "../models/Question";
 import { Attempt } from "../models/Attempt";
 import { AuthedRequest } from "../middleware/auth";
+import { finalizeAttempt } from "../services/scoring";
+import { upsertAnswerAtomic } from "../services/answers";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -101,55 +103,15 @@ async function finalizeIfPastDeadline(attempt: any): Promise<boolean> {
   return false;
 }
 
-async function scoreAndSubmit(
-  attempt: any,
-  status: "submitted" | "auto-submitted"
-) {
-  const questionIds = attempt.answers.map(
-    (answer: any) => answer.questionId
-  );
-
-  const questions = await Question.find({
-    _id: { $in: questionIds },
-  }).select("+correctOptionIndex");
-
-  const questionById = new Map(
-    questions.map((question) => [
-      question._id.toString(),
-      question,
-    ])
-  );
-
-  let score = 0;
-
-  for (const answer of attempt.answers) {
-    const question = questionById.get(
-      answer.questionId.toString()
-    );
-
-    if (!question) continue;
-
-    const optionOrder =
-      attempt.shuffleMap.optionOrder[
-        answer.questionId.toString()
-      ];
-
-    // Convert the student's displayed/shuffled option index
-    // back to the question's original option index.
-    const originalOptionIndex =
-      optionOrder?.[answer.selectedOptionIndex] ??
-      answer.selectedOptionIndex;
-
-    if (originalOptionIndex === question.correctOptionIndex) {
-      score += 1;
-    }
+async function scoreAndSubmit(attempt: any, status: "submitted" | "auto-submitted") {
+  // null means someone else already finalized it (heartbeat, sweep, double submit)
+  const final: any =
+    (await finalizeAttempt(attempt._id, status)) ?? (await Attempt.findById(attempt._id).lean());
+  if (final) {
+    attempt.score = final.score;
+    attempt.status = final.status;
+    attempt.submittedAt = final.submittedAt;
   }
-
-  attempt.score = score;
-  attempt.status = status;
-  attempt.submittedAt = new Date();
-
-  await attempt.save();
 }
 
 export async function getQuestions(req: AuthedRequest, res: Response) {
@@ -189,13 +151,16 @@ export async function heartbeat(req: AuthedRequest, res: Response) {
 
   const parsed = heartbeatSchema.safeParse(req.body ?? {});
   if (parsed.success && parsed.data.visibility) {
-    attempt.visibilityEvents.push({ type: parsed.data.visibility, at: new Date() });
-    // Tab-visibility anti-cheat: immediate auto-submit on blur/hidden, per design doc Section 4.1.
+    await Attempt.updateOne(
+      { _id: attempt._id, status: "in-progress" },
+      { $push: { visibilityEvents: { type: parsed.data.visibility, at: new Date() } } }
+    );
+
+    // Tab-visibility anti-cheat: immediate auto-submit on blur/hidden.
     if (parsed.data.visibility === "blur" || parsed.data.visibility === "hidden") {
       await scoreAndSubmit(attempt, "auto-submitted");
       return res.json({ status: attempt.status, reason: "tab-visibility-violation" });
     }
-    await attempt.save();
   }
 
   if (await finalizeIfPastDeadline(attempt)) {
@@ -260,20 +225,11 @@ export async function saveAnswer(req: AuthedRequest, res: Response) {
     });
   }
 
-  const idx = attempt.answers.findIndex(
-    (answer) => answer.questionId.toString() === questionId
-  );
-
-  if (idx >= 0) {
-    attempt.answers[idx].selectedOptionIndex = selectedOptionIndex;
-  } else {
-    attempt.answers.push({
-      questionId: new Types.ObjectId(questionId),
-      selectedOptionIndex,
-    });
+  const ok = await upsertAnswerAtomic(attempt._id, questionId, selectedOptionIndex);
+  if (!ok) {
+    await finalizeIfPastDeadline(attempt);
+    return res.status(403).json({ error: "This attempt is no longer in progress" });
   }
-
-  await attempt.save();
 
   return res.json({ ok: true });
 }

@@ -5,10 +5,13 @@ export const STUDENT_COOKIE = "secureExamStudent";
 
 const isProduction = process.env.NODE_ENV === "production";
 
+const sameSite = (process.env.COOKIE_SAMESITE as "lax" | "strict" | "none" | undefined) ??
+  (isProduction ? "none" : "lax");
+
 const cookieOptions = {
   httpOnly: true,
   secure: isProduction,
-  sameSite: (isProduction ? "none" : "lax") as "none" | "lax",
+  sameSite,
   path: "/",
 };
 

@@ -14,12 +14,17 @@ export const securityHeaders: RequestHandler = helmet({
   crossOriginEmbedderPolicy: false,
 });
 
-export function buildCors(): RequestHandler {
-  const allowed = (process.env.CORS_ORIGINS ?? "http://localhost:3000")
+/** Single source of truth for which frontend sites may call this API. */
+export function allowedOrigins(): string[] {
+  return (process.env.CORS_ORIGINS ?? "http://localhost:3000")
     .split(",")
-    .map((s) => s.trim());
+    .map((s) => s.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+}
+
+export function buildCors(): RequestHandler {
   return cors({
-    origin: allowed,
+    origin: allowedOrigins(),
     credentials: true,
   });
 }
