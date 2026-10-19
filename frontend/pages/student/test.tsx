@@ -3,11 +3,36 @@ import { useRouter } from "next/router";
 import { api } from "../../lib/api";
 
 type Question = { id: string; text: string; options: string[] };
+type EndReason = "submitted" | "time-up" | "violation" | "already-submitted" | "ended" | "error";
+type Info = {
+  title: string;
+  instructions: string;
+  durationMinutes: number;
+  minutesAvailable: number;
+  questionCount: number;
+};
 
-// HTTP status of an ApiError, or null for network failures.
 const statusOf = (e: any): number | null => (typeof e?.status === "number" ? e.status : null);
 // 401/403/404 from the attempt endpoints mean the attempt is over (or the session expired).
 const isAttemptOver = (e: any) => [401, 403, 404].includes(statusOf(e) ?? -1);
+
+const ENDED_COPY: Record<EndReason, { title: string; body?: string }> = {
+  submitted: { title: "Attempt submitted", body: "Your answers have been recorded." },
+  "time-up": { title: "Time is up", body: "Your answers were submitted automatically." },
+  violation: {
+    title: "Test ended",
+    body: "Your attempt was submitted automatically because this window lost focus.",
+  },
+  "already-submitted": {
+    title: "Attempt closed",
+    body: "You have already completed this test, or its time has ended.",
+  },
+  ended: {
+    title: "Attempt ended",
+    body: "This attempt is no longer open. Your saved answers have been submitted.",
+  },
+  error: { title: "Unable to open the test" },
+};
 
 export default function StudentTest() {
   const router = useRouter();
@@ -16,13 +41,18 @@ export default function StudentTest() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [deadline, setDeadline] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
-  const [status, setStatus] = useState<"loading" | "in-progress" | "ended">("loading");
+  const [status, setStatus] = useState<"loading" | "briefing" | "in-progress" | "ended">("loading");
+  const [info, setInfo] = useState<Info | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [endReason, setEndReason] = useState<EndReason>("ended");
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [unsavedCount, setUnsavedCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const submittedRef = useRef(false);
+  const zeroFiredRef = useRef(false);
 
   // Latest chosen option per question that the server has NOT confirmed yet.
   const pendingRef = useRef<Record<string, number>>({});
@@ -50,9 +80,10 @@ export default function StudentTest() {
     return run;
   }
 
-  function endAttempt() {
+  function endAttempt(reason: EndReason) {
     if (submittedRef.current) return;
     submittedRef.current = true;
+    setEndReason(reason);
     setStatus("ended");
   }
 
@@ -67,7 +98,7 @@ export default function StudentTest() {
       }
     } catch (err: any) {
       if (isAttemptOver(err)) {
-        endAttempt();
+        endAttempt("ended");
       } else if (statusOf(err) === 400) {
         delete pendingRef.current[questionId]; // rejected for good, retrying won't help
         setError(err.message);
@@ -84,44 +115,104 @@ export default function StudentTest() {
     return Promise.all(jobs);
   }
 
-  // Bootstrap: start (or resume) the attempt, then load questions.
+  // Starts (or resumes) the attempt and loads the questions plus any saved answers.
+  async function openAttempt() {
+    if (!linkToken) return;
+    const start = await api.startAttempt(linkToken);
+    if (start.status !== "in-progress") {
+      setEndReason("already-submitted");
+      setStatus("ended");
+      return;
+    }
+    setDeadline(start.deadline);
+    const q = await api.getQuestions(linkToken);
+    setQuestions(q.questions);
+    setAnswers(q.answers ?? {});
+    setStatus("in-progress");
+  }
+
+  // Bootstrap: look at the attempt state first, WITHOUT starting the clock.
   useEffect(() => {
     if (!linkToken) return;
     (async () => {
       try {
-        const start = await api.startAttempt(linkToken);
-        if (start.status !== "in-progress") {
+        const i = await api.getAttemptInfo(linkToken);
+        if (i.state === "finished") {
+          setEndReason("already-submitted");
           setStatus("ended");
           return;
         }
-        setDeadline(start.deadline);
-        const q = await api.getQuestions(linkToken);
-        setQuestions(q.questions);
-        setStatus("in-progress");
+        if (i.state === "in-progress") {
+          await openAttempt(); // resuming after a refresh: skip the briefing
+          return;
+        }
+        setInfo(i);
+        setStatus("briefing");
       } catch (err: any) {
         setError(err.message);
+        setEndReason("error");
         setStatus("ended");
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkToken]);
 
-  // Countdown + periodic heartbeat (also deadline enforcement) + retry of unsaved answers.
+  async function handleBegin() {
+    if (starting) return;
+    setStarting(true);
+    setError(null);
+    try {
+      await openAttempt();
+    } catch (err: any) {
+      setError(err.message);
+      setEndReason("error");
+      setStatus("ended");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  // Countdown display: shows immediately, then updates every second.
+  useEffect(() => {
+    if (!deadline || status !== "in-progress" || !linkToken) return;
+    const tick = () => {
+      const secs = Math.max(0, Math.floor((new Date(deadline).getTime() - Date.now()) / 1000));
+      setRemaining(secs);
+      if (secs === 0 && !zeroFiredRef.current) {
+        // Time is up: ask the server right away instead of waiting for the next heartbeat.
+        zeroFiredRef.current = true;
+        api
+          .heartbeat(linkToken)
+          .then((hb) => {
+            if (hb.status !== "in-progress") endAttempt("time-up");
+          })
+          .catch((err) => {
+            if (isAttemptOver(err)) endAttempt("time-up");
+          });
+      }
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deadline, status, linkToken]);
+
+  // Heartbeat (also deadline enforcement) + retry of unsaved answers.
   useEffect(() => {
     if (!deadline || status !== "in-progress" || !linkToken) return;
     const interval = setInterval(async () => {
-      const secs = Math.max(0, Math.floor((new Date(deadline).getTime() - Date.now()) / 1000));
-      setRemaining(secs);
-
       if (Object.keys(pendingRef.current).length > 0) {
         flushPending().finally(syncUnsaved);
       }
 
       try {
         const hb = await api.heartbeat(linkToken);
-        if (hb.status !== "in-progress") endAttempt();
+        if (hb.status !== "in-progress") {
+          endAttempt(hb.reason === "deadline" ? "time-up" : "ended");
+        }
       } catch (err: any) {
         // The server already ended this attempt (sweep, deadline, blur): stop showing the exam.
-        if (isAttemptOver(err)) endAttempt();
+        if (isAttemptOver(err)) endAttempt("ended");
         // Otherwise a network hiccup - the backend sweep is the safety net if this keeps failing.
       }
     }, 5000);
@@ -129,13 +220,15 @@ export default function StudentTest() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deadline, status, linkToken]);
 
-  // Tab-visibility anti-cheat: any loss of focus/visibility ends the attempt immediately.
+  // Tab-visibility anti-cheat: only active while the exam itself is on screen
+  // (not on the briefing screen), so reading the instructions can't end the test.
   useEffect(() => {
     if (status !== "in-progress" || !linkToken) return;
 
     async function reportAndEnd(type: "blur" | "hidden") {
       if (submittedRef.current) return;
       submittedRef.current = true;
+      setEndReason("violation");
       try {
         await api.heartbeat(linkToken!, type);
       } catch {
@@ -181,11 +274,12 @@ export default function StudentTest() {
       const result = await api.submit(linkToken);
       submittedRef.current = true;
       setFinalScore(result.score);
+      setEndReason("submitted");
       setStatus("ended");
     } catch (err: any) {
       if (isAttemptOver(err)) {
         // Already finalized on the server (deadline, sweep or tab violation).
-        endAttempt();
+        endAttempt("ended");
       } else {
         setSubmitError("Could not submit. Check your connection and press Submit again.");
       }
@@ -195,16 +289,69 @@ export default function StudentTest() {
   }
 
   if (status === "loading") return <Centered>Loading test…</Centered>;
+
+  if (status === "briefing" && info) {
+    const shortened = info.minutesAvailable < info.durationMinutes;
+    return (
+      <div className="min-h-screen bg-slate-50 px-4 py-10">
+        <div className="mx-auto max-w-xl rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+          <h1 className="text-lg font-semibold text-slate-800">{info.title}</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {info.questionCount} question{info.questionCount === 1 ? "" : "s"} · {info.minutesAvailable} minute
+            {info.minutesAvailable === 1 ? "" : "s"}
+            {shortened && " (shortened because the test closes soon)"}
+          </p>
+
+          {info.instructions.trim() && (
+            <div className="mt-5">
+              <h2 className="text-sm font-semibold text-slate-800">Instructions</h2>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{info.instructions}</p>
+            </div>
+          )}
+
+          <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="mb-1 font-medium">Before you begin</p>
+            <ul className="list-inside list-disc space-y-1">
+              <li>The timer starts when you press Begin and cannot be paused.</li>
+              <li>
+                Switching tabs or windows, or opening another app, ends your test and submits your
+                answers immediately.
+              </li>
+              <li>Close other windows and silence notifications first.</li>
+              <li>Answers save as you select them. You cannot change them after you submit.</li>
+            </ul>
+          </div>
+
+          {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+          <button
+            onClick={handleBegin}
+            disabled={starting}
+            className="mt-6 w-full cursor-pointer rounded-lg bg-slate-900 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {starting ? "Starting…" : "Begin test"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (status === "ended") {
+    const copy = ENDED_COPY[endReason];
     return (
       <Centered>
-        <p className="text-lg font-medium text-slate-800 mb-2">Attempt submitted</p>
-        {finalScore !== null && <p className="text-sm text-slate-600">Score: {finalScore}</p>}
-        {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+        <p className="text-lg font-medium text-slate-800 mb-2">{copy.title}</p>
+        {copy.body && <p className="text-sm text-slate-600">{copy.body}</p>}
+        {endReason === "submitted" && finalScore !== null && (
+          <p className="text-sm text-slate-600 mt-1">Score: {finalScore}</p>
+        )}
+        {endReason === "error" && error && <p className="text-sm text-red-600 mt-2">{error}</p>}
         <p className="text-xs text-slate-400 mt-4">You may close this tab.</p>
       </Centered>
     );
   }
+
+  const answeredCount = questions.filter((q) => answers[q.id] !== undefined).length;
+  const unanswered = questions.length - answeredCount;
 
   return (
     <div className="h-screen bg-slate-50 px-4 py-8">
@@ -212,7 +359,9 @@ export default function StudentTest() {
         <div className="flex items-center justify-between">
           <h1 className="text-base font-semibold text-slate-800">SecureExam</h1>
           {remaining !== null && (
-            <span className="text-sm font-mono text-slate-600">
+            <span
+              className={`text-sm font-mono ${remaining <= 60 ? "text-red-600 font-semibold" : "text-slate-600"}`}
+            >
               {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}
             </span>
           )}
@@ -251,13 +400,53 @@ export default function StudentTest() {
 
         {submitError && <p className="mt-6 text-sm text-red-600">{submitError}</p>}
         <button
-          onClick={handleSubmit}
+          onClick={() => setConfirming(true)}
           disabled={loading}
           className="mt-4 w-full rounded-lg bg-slate-900 text-white py-3 text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? "Submitting..." : "Submit test"}
         </button>
       </div>
+
+      {/* In-page dialog on purpose: a native confirm() would blur the window and auto-submit. */}
+      {confirming && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-title"
+          className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 px-4"
+        >
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
+            <h2 id="confirm-title" className="text-base font-semibold text-slate-800">
+              Submit your test?
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              You have answered {answeredCount} of {questions.length} questions.
+              {unanswered > 0 && (
+                <span className="font-medium text-amber-700"> {unanswered} unanswered.</span>
+              )}{" "}
+              You cannot change your answers after submitting.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setConfirming(false)}
+                className="flex-1 rounded-lg border border-slate-300 py-2 text-sm font-medium text-slate-700 cursor-pointer"
+              >
+                Go back
+              </button>
+              <button
+                onClick={() => {
+                  setConfirming(false);
+                  handleSubmit();
+                }}
+                className="flex-1 rounded-lg bg-slate-900 py-2 text-sm font-medium text-white cursor-pointer"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

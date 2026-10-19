@@ -95,7 +95,13 @@ export const api = {
 
     const body = await res.json();
     if (!res.ok) throw new Error(body.error ?? "Upload failed");
-    return body as { acceptedCount: number; rejectedCount: number; rejectedReasons: string[] };
+    return body as {
+      acceptedCount: number;
+      rejectedCount: number;
+      rejectedReasons: string[];
+      namesAdded: number;
+      ignoredNameCount: number;
+    };
   },
 
   getMe: () =>
@@ -198,6 +204,7 @@ export const api = {
     request<{
       results: {
         idNumber: string;
+        name: string;
         status: "submitted" | "auto-submitted";
         score: number | null;
         submittedAt: string | null;
@@ -241,10 +248,25 @@ export const api = {
       { method: "POST" }
     ),
 
+  getAttemptInfo: (linkToken: string) =>
+  request<
+    | { state: "in-progress"; deadline: string }
+    | { state: "finished" }
+    | {
+        state: "not-started";
+        title: string;
+        instructions: string;
+        durationMinutes: number;
+        minutesAvailable: number;
+        questionCount: number;
+      }
+  >(`/api/attempts/${linkToken}/info`),
+
   getQuestions: (linkToken: string) =>
     request<{
       deadline: string;
       questions: { id: string; text: string; options: string[] }[];
+      answers?: Record<string, number>; 
     }>(`/api/attempts/${linkToken}/questions`),
 
   saveAnswer: (

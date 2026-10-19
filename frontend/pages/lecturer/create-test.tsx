@@ -21,6 +21,7 @@ export default function CreateTest() {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [duration, setDuration] = useState(20);
+  const [instructions, setInstructions] = useState("");
   const [testId, setTestId] = useState<string | null>(null);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [accessCode, setAccessCode] = useState<string | null>(null);
@@ -91,6 +92,7 @@ export default function CreateTest() {
         loginWindowStart: new Date(start).toISOString(),
         loginWindowEnd: new Date(end).toISOString(),
         durationMinutes: duration,
+        instructions: instructions.trim(),
         questionGenMode: "manual",
         requiresAccessCode: true,
       });
@@ -112,7 +114,9 @@ export default function CreateTest() {
     if (!testId || !file) return;
     try {
       const result = await api.uploadRoster(testId, file);
-      setRosterMsg(`${result.acceptedCount} student(s) added, ${result.rejectedCount} row(s) rejected.`);
+      setRosterMsg(
+        `${result.acceptedCount} student(s) added (${result.namesAdded} with names), ${result.rejectedCount} row(s) rejected.` + (result.ignoredNameCount > 0 ? ` ${result.ignoredNameCount} name(s) ignored for unsupported characters.` : "")
+      );
       invalidateTests();
     } catch (err: any) {
       setError(err.message);
@@ -289,6 +293,20 @@ export default function CreateTest() {
                 onChange={(e) => setDuration(Number(e.target.value))}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </div>
+            <div>
+              <label className="block text-sm text-slate-600 mb-1">
+                Instructions for students (optional)
+              </label>
+              <textarea
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                rows={5}
+                maxLength={4000}
+                placeholder="e.g. Closed book. Calculators allowed. Answer all questions."
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <p className="mt-1 text-xs text-slate-400">{instructions.length}/4000</p>
+            </div>
             <button type="submit" disabled={creating}
               className="w-full rounded-lg bg-slate-900 text-white py-2 text-sm font-medium disabled:opacity-50">
               {creating ? "Creating..." : "Create test"}
@@ -305,7 +323,7 @@ export default function CreateTest() {
             </div>
 
             <div>
-              <label className="block text-sm text-slate-600 mb-1">Upload roster (CSV, one ID per row)</label>
+              <label className="block text-sm text-slate-600 mb-1">Upload roster (CSV: ID number, optional full name)</label>
               <input type="file" accept=".csv" onChange={handleRoster} className="w-full text-sm" />
               {rosterMsg && <p className="text-xs text-slate-500 mt-1">{rosterMsg}</p>}
             </div>

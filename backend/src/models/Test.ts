@@ -4,6 +4,10 @@ export type QuestionGenMode = "ai" | "manual";
 export type TestStatus = "draft" | "published";
 export type TestWindow = "opened" | "closed";
 
+export interface IRosterName {
+  idNumber: string;
+  name: string;
+}
 export interface IRosterUploadLog {
   uploadedAt: Date;
   acceptedCount: number;
@@ -16,12 +20,14 @@ export interface ITest extends Document {
   lecturerId: Types.ObjectId;
   title: string;
   topics: string[];
+  instructions: string;
   loginWindowStart: Date;
   loginWindowEnd: Date;
   durationMinutes: number;
   linkToken: string; // high-entropy, single purpose
   questionGenMode: QuestionGenMode;
   allowedStudents: string[]; // ID numbers, sanitized + deduplicated
+  rosterNames: IRosterName[];
   requiresAccessCode: boolean;
   accessCodeHash?: string | null; // second factor, hashed - never store plaintext
   status: TestStatus;
@@ -29,6 +35,14 @@ export interface ITest extends Document {
   rosterUploadLog: IRosterUploadLog[];
   createdAt: Date;
 }
+
+const RosterNameSchema = new Schema<IRosterName>(
+  {
+    idNumber: { type: String, required: true },
+    name: { type: String, required: true, maxlength: 100 },
+  },
+  { _id: false }
+);
 
 const RosterUploadLogSchema = new Schema<IRosterUploadLog>(
   {
@@ -77,6 +91,13 @@ const TestSchema = new Schema<ITest>({
     }
   ],
 
+  instructions: {
+    type: String,
+    default: "",
+    trim: true,
+    maxlength: 4000,
+  },
+
   loginWindowStart: { 
     type: Date, 
     required: true 
@@ -108,6 +129,7 @@ const TestSchema = new Schema<ITest>({
   },
 
   allowedStudents: [String],
+  rosterNames: [RosterNameSchema],
 
   requiresAccessCode: { 
     type: Boolean, 

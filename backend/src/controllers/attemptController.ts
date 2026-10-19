@@ -18,6 +18,50 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 /**
+ * Read-only briefing for the "before you begin" screen. Does NOT create an attempt,
+ * so the student's timer only starts when they press Begin.
+ */
+export async function getAttemptInfo(req: AuthedRequest, res: Response) {
+  const { testId, id: studentId } = req.student!;
+  const test = await Test.findById(testId).select(
+    "title instructions durationMinutes status loginWindowEnd"
+  );
+  if (!test || test.status !== "published") {
+    return res.status(404).json({ error: "Test not available" });
+  }
+
+  const now = new Date();
+  const attempt = await Attempt.findOne({ testId, studentId }).select("status deadline");
+  if (attempt) {
+    if (attempt.status === "in-progress" && attempt.deadline > now) {
+      return res.json({ state: "in-progress", deadline: attempt.deadline });
+    }
+    return res.json({ state: "finished" });
+  }
+
+  if (now > test.loginWindowEnd) {
+    return res.status(403).json({ error: "Login window has closed" });
+  }
+
+  const questionCount = await Question.countDocuments({ testId, approved: true });
+  const minutesLeftInWindow = Math.max(
+    1,
+    Math.ceil((test.loginWindowEnd.getTime() - now.getTime()) / 60000)
+  );
+
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({
+    state: "not-started",
+    title: test.title,
+    instructions: test.instructions ?? "",
+    durationMinutes: test.durationMinutes,
+    // The deadline is capped by the login window, so show what the student will really get.
+    minutesAvailable: Math.min(test.durationMinutes, minutesLeftInWindow),
+    questionCount,
+  });
+}
+
+/**
  * Gets-or-atomically-creates the caller's Attempt. Uses findOneAndUpdate with
  * upsert so concurrent requests for the same (testId, studentId) cannot both
  * succeed in creating separate Attempts — the unique index on Attempt is the
@@ -136,8 +180,13 @@ export async function getQuestions(req: AuthedRequest, res: Response) {
     return { ...toStudentSafeQuestion(q as any), options: reorderedOptions, optionOrder: order };
   });
 
+    // Saved answers (displayed option indexes), so a refreshed page can restore its selections.
+  const savedAnswers = Object.fromEntries(
+    attempt.answers.map((a) => [a.questionId.toString(), a.selectedOptionIndex])
+  );
+
   res.setHeader("Cache-Control", "no-store");
-  return res.json({ deadline: attempt.deadline, questions: ordered });
+  return res.json({ deadline: attempt.deadline, questions: ordered, answers: savedAnswers });
 }
 
 const heartbeatSchema = z.object({

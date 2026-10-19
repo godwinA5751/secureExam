@@ -12,6 +12,7 @@ import { generateQuestionsForTopics } from "../services/llmService";
 const createTestSchema = z.object({
   title: z.string().min(3).max(200),
   topics: z.array(z.string().min(1).max(100)).min(1).max(20),
+  instructions: z.string().max(4000).optional(),
   loginWindowStart: z.string().datetime(),
   loginWindowEnd: z.string().datetime(),
   durationMinutes: z.number().int().min(1).max(480),
@@ -40,6 +41,7 @@ export async function createTest(req: AuthedRequest, res: Response) {
     lecturerId: req.lecturer!.id,
     title: data.title,
     topics: data.topics,
+    instructions: data.instructions ?? "",
     loginWindowStart: start,
     loginWindowEnd: end,
     durationMinutes: data.durationMinutes,
@@ -87,6 +89,15 @@ export async function uploadRoster(req: AuthedRequest & { file?: Express.Multer.
   }
 
   test.allowedStudents = Array.from(new Set([...test.allowedStudents, ...result.acceptedIds]));
+
+  // Merge names: a newer upload overwrites a name, but a blank name never erases an existing one.
+  const names = new Map<string, string>((test.rosterNames ?? []).map((r) => [r.idNumber, r.name]));
+  for (const s of result.acceptedStudents) {
+    if (s.name) names.set(s.idNumber, s.name);
+  }
+
+  test.rosterNames = Array.from(names, ([idNumber, name]) => ({ idNumber, name }));
+
   test.rosterUploadLog.push({
     uploadedAt: new Date(),
     acceptedCount: result.acceptedIds.length,
@@ -99,6 +110,9 @@ export async function uploadRoster(req: AuthedRequest & { file?: Express.Multer.
     acceptedCount: result.acceptedIds.length,
     rejectedCount: result.rejectedCount,
     rejectedReasons: result.rejectedReasons,
+    namesAdded: result.acceptedStudents.filter((s) => s.name).length,
+    ignoredNameCount: result.ignoredNameCount,
+    nameWarnings: result.nameWarnings,
     totalRosterSize: test.allowedStudents.length,
   });
 }
@@ -353,9 +367,22 @@ export async function generateLink(req: AuthedRequest, res: Response) {
   return res.json({ linkToken: test.linkToken, status: test.status, window: test.window });
 }
 
+/** Safe CSV cell: neutralizes spreadsheet formulas and quotes commas, quotes and newlines. */
+function csvCell(value: unknown): string {
+  let s = value === null || value === undefined ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  if (/[",\n\r]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function nameLookup(test: { rosterNames?: { idNumber: string; name: string }[] }) {
+  return new Map((test.rosterNames ?? []).map((r) => [r.idNumber, r.name]));
+}
+
 export async function liveResults(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
+  const nameById = nameLookup(test);
 
   const attempts = await Attempt.find({
     testId: test._id,
@@ -366,27 +393,36 @@ export async function liveResults(req: AuthedRequest, res: Response) {
     .sort({ submittedAt: -1 });
 
   return res.json({
-    results: attempts.map((a: any) => ({
-      idNumber: a.studentId?.idNumber ?? "",
-      status: a.status === "auto-submitted" ? "auto-submitted" : "submitted",
-      score: a.score ?? null,
-      submittedAt: a.submittedAt ? new Date(a.submittedAt).toISOString() : null,
-    })),
+    results: attempts.map((a: any) => {
+      const idNumber = a.studentId?.idNumber ?? "";
+      return {
+        idNumber,
+        name: nameById.get(idNumber) ?? "",
+        status: a.status === "auto-submitted" ? "auto-submitted" : "submitted",
+        score: a.score ?? null,
+        submittedAt: a.submittedAt ? new Date(a.submittedAt).toISOString() : null,
+      };
+    }),
   });
 }
 
 export async function exportResults(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
+  const nameById = nameLookup(test);
 
   const attempts = await Attempt.find({ testId: test._id }).populate("studentId", "idNumber");
-  const rows = ["idNumber,status,score,submittedAt"];
+  const rows = [["idNumber", "name", "status", "score", "submittedAt"].map(csvCell).join(",")];
   for (const a of attempts as any[]) {
+    const idNumber = a.studentId?.idNumber ?? "";
     rows.push(
-      [a.studentId?.idNumber ?? "", a.status, a.score ?? "", a.submittedAt?.toISOString() ?? ""].join(",")
+      [idNumber, nameById.get(idNumber) ?? "", a.status, a.score ?? "", a.submittedAt?.toISOString() ?? ""]
+        .map(csvCell)
+        .join(",")
     );
   }
-  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${test._id}-results.csv"`);
-  return res.send(rows.join("\n"));
+  // The BOM makes Excel read non-English names correctly.
+  return res.send("\uFEFF" + rows.join("\r\n"));
 }

@@ -39,7 +39,7 @@ export default function TestResults() {
     const normalizedSearch = search.trim().toLowerCase();
 
     return results.filter((result) => {
-      const matchesSearch = !normalizedSearch || result.idNumber.toLowerCase().includes(normalizedSearch);
+      const matchesSearch = !normalizedSearch || result.idNumber.toLowerCase().includes(normalizedSearch) ||(result.name ?? "").toLowerCase().includes(normalizedSearch);
       const matchesFilter = filter === "all" || result.status === filter;
       return matchesSearch && matchesFilter;
     });
@@ -103,7 +103,7 @@ export default function TestResults() {
         <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
-            placeholder="Search student ID..."
+            placeholder="Search name or student ID..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             disabled={loading}
@@ -141,6 +141,7 @@ export default function TestResults() {
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="text-left px-5 py-3 font-medium text-slate-600">Student ID</th>
+                  <th className="text-left px-5 py-3 font-medium text-slate-600">Name</th>
                   <th className="text-left px-5 py-3 font-medium text-slate-600">Status</th>
                   <th className="text-left px-5 py-3 font-medium text-slate-600">Score</th>
                   <th className="text-left px-5 py-3 font-medium text-slate-600">Submitted</th>
@@ -153,6 +154,9 @@ export default function TestResults() {
                       <tr key={i}>
                         <td className="px-5 py-4">
                           <Skeleton className="h-4 w-28" />
+                        </td>
+                        <td className="px-5 py-4">
+                          <Skeleton className="h-4 w-32" />
                         </td>
                         <td className="px-5 py-4">
                           <Skeleton className="h-5 w-24 rounded-full" />
@@ -168,6 +172,7 @@ export default function TestResults() {
                   : filteredResults.map((result, index) => (
                       <tr key={`${result.idNumber}-${result.submittedAt}-${index}`} className="hover:bg-slate-50">
                         <td className="px-5 py-4 font-medium text-slate-800">{result.idNumber || "Unknown"}</td>
+                        <td className="px-5 py-4 text-slate-700">{result.name || "—"}</td>
                         <td className="px-5 py-4">
                           <StatusBadge status={result.status} />
                         </td>
