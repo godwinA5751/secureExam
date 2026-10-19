@@ -4,6 +4,7 @@ import {
   getOrCreateAttempt,
   getQuestions,
   getAttemptInfo,
+  getResult,
   heartbeat,
   saveAnswer,
   submitAttempt,
@@ -21,5 +22,5 @@ router.get("/:linkToken/questions", h(getQuestions));
 router.post("/:linkToken/heartbeat", h(heartbeat));
 router.post("/:linkToken/answer", h(saveAnswer));
 router.post("/:linkToken/submit", h(submitAttempt));
-
+router.get("/:linkToken/result", h(getResult));
 export default router;

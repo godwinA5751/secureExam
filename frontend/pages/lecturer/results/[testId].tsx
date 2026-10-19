@@ -50,6 +50,7 @@ export default function TestResults() {
 
   const scores = results.map((r) => r.score).filter((s): s is number => s !== null);
   const averageScore = scores.length > 0 ? scores.reduce((total, s) => total + s, 0) / scores.length : null;
+  const totalPossible = results.find((r) => r.total)?.total ?? null;
 
   async function handleExport() {
     if (typeof testId !== "string") return;
@@ -94,7 +95,11 @@ export default function TestResults() {
         <StatCard label="Auto-submitted" value={autoSubmittedCount} loading={loading} />
         <StatCard
           label="Average score"
-          value={averageScore !== null ? averageScore.toFixed(2) : "—"}
+          value={
+            averageScore !== null
+              ? `${averageScore.toFixed(1)}${totalPossible ? `/${totalPossible}` : ""}`
+              : "—"
+          }
           loading={loading}
         />
       </div>
@@ -162,7 +167,7 @@ export default function TestResults() {
                           <Skeleton className="h-5 w-24 rounded-full" />
                         </td>
                         <td className="px-5 py-4">
-                          <Skeleton className="h-4 w-8" />
+                          <Skeleton className="h-4 w-12" />
                         </td>
                         <td className="px-5 py-4">
                           <Skeleton className="h-4 w-36" />
@@ -176,7 +181,13 @@ export default function TestResults() {
                         <td className="px-5 py-4">
                           <StatusBadge status={result.status} />
                         </td>
-                        <td className="px-5 py-4 text-slate-700">{result.score !== null ? result.score : "—"}</td>
+                        <td className="px-5 py-4 text-slate-700">
+                          {result.score !== null
+                            ? result.total
+                              ? `${result.score}/${result.total}`
+                              : result.score
+                            : "—"}
+                        </td>
                         <td className="px-5 py-4 text-slate-500">
                           {result.submittedAt ? new Date(result.submittedAt).toLocaleString() : "—"}
                         </td>

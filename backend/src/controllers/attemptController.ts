@@ -288,10 +288,35 @@ export async function submitAttempt(req: AuthedRequest, res: Response) {
   const attempt = await requireActiveAttempt(testId, studentId, res);
   if (!attempt) return;
 
+  const total = attempt.shuffleMap.questionOrder.length;
+
   if (await finalizeIfPastDeadline(attempt)) {
-    return res.json({ status: "auto-submitted", score: attempt.score });
+    return res.json({ status: "auto-submitted", score: attempt.score, total });
   }
 
   await scoreAndSubmit(attempt, "submitted");
-  return res.json({ status: attempt.status, score: attempt.score });
+  return res.json({ status: attempt.status, score: attempt.score, total });
+}
+
+/**
+ * Result of a finished attempt, for the ended screen. If the deadline has passed but
+ * nothing has finalized the attempt yet, finalize it here so the score exists.
+ */
+export async function getResult(req: AuthedRequest, res: Response) {
+  const { testId, id: studentId } = req.student!;
+  const attempt = await Attempt.findOne({ testId, studentId });
+  if (!attempt) return res.status(404).json({ error: "No attempt found" });
+
+  if (attempt.status === "in-progress") {
+    if (!(await finalizeIfPastDeadline(attempt))) {
+      return res.status(409).json({ error: "This attempt is still in progress" });
+    }
+  }
+
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({
+    status: attempt.status,
+    score: attempt.score ?? null,
+    total: attempt.shuffleMap.questionOrder.length,
+  });
 }

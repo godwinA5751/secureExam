@@ -46,6 +46,8 @@ export default function StudentTest() {
   const [starting, setStarting] = useState(false);
   const [endReason, setEndReason] = useState<EndReason>("ended");
   const [finalScore, setFinalScore] = useState<number | null>(null);
+  const [finalTotal, setFinalTotal] = useState<number | null>(null);
+  const [scoreGaveUp, setScoreGaveUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [unsavedCount, setUnsavedCount] = useState(0);
@@ -274,7 +276,8 @@ export default function StudentTest() {
       const result = await api.submit(linkToken);
       submittedRef.current = true;
       setFinalScore(result.score);
-      setEndReason("submitted");
+      setFinalTotal(result.total ?? questions.length);
+      setEndReason(result.status === "auto-submitted" ? "time-up" : "submitted");
       setStatus("ended");
     } catch (err: any) {
       if (isAttemptOver(err)) {
@@ -287,6 +290,31 @@ export default function StudentTest() {
       setLoading(false);
     }
   }
+
+  // After the attempt ends for any reason (time up, focus loss, reopened link), fetch the score.
+  useEffect(() => {
+    if (status !== "ended" || !linkToken || finalScore !== null || endReason === "error") return;
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < 6 && !cancelled; i++) {
+        try {
+          const r = await api.getResult(linkToken);
+          if (r.score !== null && r.total !== null) {
+            setFinalScore(r.score);
+            setFinalTotal(r.total);
+            return;
+          }
+        } catch (err: any) {
+          if (statusOf(err) === 401 || statusOf(err) === 404) break; // session gone: stop quietly
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      if (!cancelled) setScoreGaveUp(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, endReason, linkToken, finalScore]);
 
   if (status === "loading") return <Centered>Loading test…</Centered>;
 
@@ -341,8 +369,17 @@ export default function StudentTest() {
       <Centered>
         <p className="text-lg font-medium text-slate-800 mb-2">{copy.title}</p>
         {copy.body && <p className="text-sm text-slate-600">{copy.body}</p>}
-        {endReason === "submitted" && finalScore !== null && (
-          <p className="text-sm text-slate-600 mt-1">Score: {finalScore}</p>
+        {finalScore !== null && finalTotal !== null ? (
+          <div className="mt-4">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Your score</p>
+            <p className="text-xl md:text-lg lg:text-md font-bold text-slate-900">
+              {finalScore}/{finalTotal}
+            </p>
+          </div>
+        ) : endReason === "error" ? null : scoreGaveUp ? (
+          <p className="mt-2 text-sm text-slate-500">Your score will be available from your lecturer.</p>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">Getting your score…</p>
         )}
         {endReason === "error" && error && <p className="text-sm text-red-600 mt-2">{error}</p>}
         <p className="text-xs text-slate-400 mt-4">You may close this tab.</p>

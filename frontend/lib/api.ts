@@ -207,6 +207,7 @@ export const api = {
         name: string;
         status: "submitted" | "auto-submitted";
         score: number | null;
+        total: number | null;
         submittedAt: string | null;
       }[];
     }>(`/api/tests/${testId}/results`),
@@ -292,8 +293,13 @@ export const api = {
     ),
 
   submit: (linkToken: string) =>
-    request<{ status: string; score: number | null }>(
+    request<{ status: string; score: number | null; total: number }>(
       `/api/attempts/${linkToken}/submit`,
       { method: "POST" }
+    ),
+
+  getResult: (linkToken: string) =>
+    request<{ status: string; score: number | null; total: number | null }>(
+      `/api/attempts/${linkToken}/result`
     ),
 };

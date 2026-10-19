@@ -389,7 +389,7 @@ export async function liveResults(req: AuthedRequest, res: Response) {
     status: { $in: ["submitted", "auto-submitted"] },
   })
     .populate("studentId", "idNumber")
-    .select("studentId status score submittedAt")
+    .select("studentId status score submittedAt shuffleMap.questionOrder")
     .sort({ submittedAt: -1 });
 
   return res.json({
@@ -400,6 +400,7 @@ export async function liveResults(req: AuthedRequest, res: Response) {
         name: nameById.get(idNumber) ?? "",
         status: a.status === "auto-submitted" ? "auto-submitted" : "submitted",
         score: a.score ?? null,
+        total: a.shuffleMap?.questionOrder?.length ?? null,
         submittedAt: a.submittedAt ? new Date(a.submittedAt).toISOString() : null,
       };
     }),
