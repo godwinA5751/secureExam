@@ -23,6 +23,9 @@ const GEMINI_MODELS = (process.env.GEMINI_MODELS ?? "gemini-3.5-flash,gemini-3.5
   .map((m) => m.trim())
   .filter(Boolean);
 
+const REQUEST_TIMEOUT_MS = Number(process.env.LLM_REQUEST_TIMEOUT_MS ?? 30_000); // one HTTP call
+const TOTAL_TIMEOUT_MS = Number(process.env.LLM_TOTAL_TIMEOUT_MS ?? 60_000); // whole generation
+
 function geminiUrl(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
@@ -74,27 +77,47 @@ function validate(raw: unknown, allowedTopics: string[]): GeneratedQuestion[] {
 async function callGemini(apiKey: string, prompt: string): Promise<string> {
   const attemptsPerModel = 2;
   const failures: string[] = [];
+  const giveUpAt = Date.now() + TOTAL_TIMEOUT_MS;
 
   for (const model of GEMINI_MODELS) {
     for (let attempt = 1; attempt <= attemptsPerModel; attempt++) {
-      const res = await fetch(`${geminiUrl(model)}?key=${encodeURIComponent(apiKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: RESPONSE_SCHEMA,
-            temperature: 0.7,
-          },
-        }),
-      });
+      const remainingMs = giveUpAt - Date.now();
+      if (remainingMs <= 0) {
+        throw new Error(`Gemini generation timed out after ${TOTAL_TIMEOUT_MS}ms. ${failures.join("; ")}`);
+      }
+
+      let res: Awaited<ReturnType<typeof fetch>>;
+      try {
+        res = await fetch(`${geminiUrl(model)}?key=${encodeURIComponent(apiKey)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseSchema: RESPONSE_SCHEMA,
+              temperature: 0.7,
+            },
+          }),
+          // Covers connecting AND reading the body, so a stalled response can't hang the request.
+          signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remainingMs)),
+        });
+      } catch (e: any) {
+        // Timeout or network failure: this model is slow or unreachable, so try the next one.
+        failures.push(`${model}: ${e?.name === "TimeoutError" ? "timeout" : "network error"}`);
+        break;
+      }
 
       if (res.ok) {
-        const data = await res.json();
-        const textOut: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!textOut) throw new Error("Gemini returned no content");
-        return textOut;
+        try {
+          const data: any = await res.json();
+          const textOut: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!textOut) throw new Error("no content");
+          return textOut;
+        } catch (e: any) {
+          failures.push(`${model}: ${e?.name === "TimeoutError" ? "timeout" : "bad response"}`);
+          break;
+        }
       }
 
       const errBody = await res.text().catch(() => "");

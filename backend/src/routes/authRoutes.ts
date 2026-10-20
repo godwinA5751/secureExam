@@ -10,5 +10,5 @@ router.post("/lecturer/register", lecturerLoginLimiter, h(lecturerRegister));
 router.post("/lecturer/login", lecturerLoginLimiter, h(lecturerLogin));
 router.get("/lecturer/me", requireLecturer, h(getLecturerProfile));
 router.post("/student/login", studentLoginLimiter, h(studentLogin));
-router.post("/logout", (logout));
+router.post("/logout", h(logout));
 export default router;

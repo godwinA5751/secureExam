@@ -171,13 +171,13 @@ export async function getQuestions(req: AuthedRequest, res: Response) {
     "_id text options topic"
   );
   const byId = new Map(questions.map((q) => [q._id.toString(), q]));
-
+ 
   // Reorder per this student's shuffle and strip the answer key before it ever leaves the server.
   const ordered = attempt.shuffleMap.questionOrder.map((qid: Types.ObjectId) => {
     const q = byId.get(qid.toString())!;
     const order: number[] = attempt.shuffleMap.optionOrder[qid.toString()] ?? q.options.map((_: any, i: number) => i);
     const reorderedOptions = order.map((i) => q.options[i]);
-    return { ...toStudentSafeQuestion(q as any), options: reorderedOptions, optionOrder: order };
+    return { ...toStudentSafeQuestion(q as any), options: reorderedOptions };
   });
 
     // Saved answers (displayed option indexes), so a refreshed page can restore its selections.

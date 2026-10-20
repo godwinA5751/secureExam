@@ -37,3 +37,14 @@ export const attemptLimiter = rateLimit({
   keyGenerator: (req: any) => String(req.student?.id ?? "anonymous"),
   message: { error: "Too many requests. Please slow down." },
 });
+
+/** Per-lecturer cap on AI question generation runs. Failed runs don't count. */
+export const aiGenerationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number(process.env.AI_GENERATIONS_PER_LECTURER_PER_HOUR ?? 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipFailedRequests: true,
+  keyGenerator: (req: any) => String(req.lecturer?.id ?? "anonymous"),
+  message: { error: "You have reached the hourly limit for AI question generation. Please try again later." },
+});

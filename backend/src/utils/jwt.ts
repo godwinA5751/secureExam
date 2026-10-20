@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { randomUUID } from "crypto";
 
 export type LecturerTokenPayload = { sub: string; role: "lecturer" };
 export type StudentTokenPayload = {
@@ -7,6 +8,7 @@ export type StudentTokenPayload = {
   testId: string;
   linkToken: string;
 };
+export type Verified<T> = T & { jti?: string; exp?: number };
 
 function requireSecret(name: string): string {
   const v = process.env[name];
@@ -21,14 +23,15 @@ export function signLecturerToken(payload: LecturerTokenPayload): string {
     expiresIn: "12h",
     issuer: "secureexam",
     audience: "secureexam-lecturer",
+    jwtid: randomUUID(),
   });
 }
 
-export function verifyLecturerToken(token: string): LecturerTokenPayload {
+export function verifyLecturerToken(token: string): Verified<LecturerTokenPayload>  {
   return jwt.verify(token, requireSecret("JWT_LECTURER_SECRET"), {
     issuer: "secureexam",
     audience: "secureexam-lecturer",
-  }) as LecturerTokenPayload;
+  }) as Verified<LecturerTokenPayload> ;
 }
 
 /**
@@ -40,12 +43,13 @@ export function signStudentToken(payload: StudentTokenPayload, expiresInSeconds:
     expiresIn: expiresInSeconds,
     issuer: "secureexam",
     audience: "secureexam-student",
+    jwtid: randomUUID(),
   });
 }
 
-export function verifyStudentToken(token: string): StudentTokenPayload {
+export function verifyStudentToken(token: string): Verified<StudentTokenPayload> {
   return jwt.verify(token, requireSecret("JWT_STUDENT_SECRET"), {
     issuer: "secureexam",
     audience: "secureexam-student",
-  }) as StudentTokenPayload;
+  }) as Verified<StudentTokenPayload>;
 }

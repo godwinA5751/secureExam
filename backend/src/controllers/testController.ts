@@ -8,6 +8,7 @@ import { AuthedRequest } from "../middleware/auth";
 import { generateLinkToken, generateAccessCode } from "../utils/token";
 import { parseRosterCsv } from "../services/csvService";
 import { generateQuestionsForTopics } from "../services/llmService";
+import { buildResultsCsv, fileSlug } from "../services/exportService";
 
 const createTestSchema = z.object({
   title: z.string().min(3).max(200),
@@ -157,21 +158,52 @@ function rejectIfPublished(test: { status: string }, res: Response): boolean {
   return false;
 }
 
+const MAX_AI_GENERATIONS_PER_TEST = Number(process.env.AI_GENERATIONS_PER_TEST ?? 3);
 export async function generateQuestions(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
   if (rejectIfPublished(test, res)) return;
 
+  // Reserve one run atomically. This also stops a double-click from running two at once
+  // past the cap. Tests created before this field existed count as 0 runs used.
+  const reserved = await Test.findOneAndUpdate(
+    {
+      _id: test._id,
+      $or: [
+        { aiGenerationCount: { $lt: MAX_AI_GENERATIONS_PER_TEST } },
+        { aiGenerationCount: { $exists: false } },
+      ],
+    },
+    { $inc: { aiGenerationCount: 1 } },
+    { new: true }
+  );
+  if (!reserved) {
+    return res.status(429).json({
+      error: `AI generation limit reached for this test (${MAX_AI_GENERATIONS_PER_TEST} runs). Add the remaining questions manually.`,
+    });
+  }
+
+  const started = Date.now();
   try {
     const generated = await generateQuestionsForTopics(test.topics);
     const docs = await Question.insertMany(
       generated.map((g) => ({ ...g, testId: test._id, approved: false }))
     );
+    console.log("[ai] generated", {
+      lecturerId: req.lecturer!.id,
+      testId: test._id.toString(),
+      topics: test.topics.length,
+      questions: docs.length,
+      ms: Date.now() - started,
+    });
     return res.status(201).json({
       count: docs.length,
+      remainingGenerations: Math.max(0, MAX_AI_GENERATIONS_PER_TEST - reserved.aiGenerationCount),
       note: "Questions require lecturer review/approval before the test can be published.",
     });
   } catch (e: any) {
+    // A failed run doesn't use up the lecturer's allowance.
+    await Test.updateOne({ _id: test._id }, { $inc: { aiGenerationCount: -1 } });
     console.error("[generateQuestions] failed:", e);
     return res.status(502).json({ error: "Question generation failed. Please try again." });
   }
@@ -208,6 +240,7 @@ const manualQuestionSchema = z.object({
 export async function addManualQuestion(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
+  if (rejectIfPublished(test, res)) return;
 
   const parsed = manualQuestionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -305,6 +338,18 @@ export async function deleteTest(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
 
+  // Never delete a test while students are still sitting it.
+  const liveAttempts = await Attempt.countDocuments({
+    testId: test._id,
+    status: "in-progress",
+    deadline: { $gt: new Date() },
+  });
+  if (liveAttempts > 0) {
+    return res.status(409).json({
+      error: `${liveAttempts} student(s) are sitting this test right now. Try again after they finish.`,
+    });
+  }
+
   // Delete all questions belonging to the test
   await Question.deleteMany({
     testId: test._id,
@@ -333,6 +378,7 @@ const approveSchema = z.object({
 export async function reviewQuestions(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
+  if (rejectIfPublished(test, res)) return;
   const parsed = approveSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
 
@@ -365,14 +411,6 @@ export async function generateLink(req: AuthedRequest, res: Response) {
   test.window = "opened";
   await test.save();
   return res.json({ linkToken: test.linkToken, status: test.status, window: test.window });
-}
-
-/** Safe CSV cell: neutralizes spreadsheet formulas and quotes commas, quotes and newlines. */
-function csvCell(value: unknown): string {
-  let s = value === null || value === undefined ? "" : String(value);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  if (/[",\n\r]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
-  return s;
 }
 
 function nameLookup(test: { rosterNames?: { idNumber: string; name: string }[] }) {
@@ -410,20 +448,17 @@ export async function liveResults(req: AuthedRequest, res: Response) {
 export async function exportResults(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
-  const nameById = nameLookup(test);
 
-  const attempts = await Attempt.find({ testId: test._id }).populate("studentId", "idNumber");
-  const rows = [["idNumber", "name", "status", "score", "submittedAt"].map(csvCell).join(",")];
-  for (const a of attempts as any[]) {
-    const idNumber = a.studentId?.idNumber ?? "";
-    rows.push(
-      [idNumber, nameById.get(idNumber) ?? "", a.status, a.score ?? "", a.submittedAt?.toISOString() ?? ""]
-        .map(csvCell)
-        .join(",")
-    );
-  }
+  // No answers are loaded here: the export doesn't need them and they make big classes slow.
+  const attempts = await Attempt.find({ testId: test._id })
+    .populate("studentId", "idNumber")
+    .select("studentId status score startedAt submittedAt visibilityEvents shuffleMap.questionOrder");
+
+  const csv = buildResultsCsv(test, attempts as any[]);
+  const filename = `${fileSlug(test.title)}-results-${new Date().toISOString().slice(0, 10)}.csv`;
+
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="${test._id}-results.csv"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   // The BOM makes Excel read non-English names correctly.
-  return res.send("\uFEFF" + rows.join("\r\n"));
+  return res.send("\uFEFF" + csv);
 }

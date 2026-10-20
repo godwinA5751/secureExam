@@ -26,5 +26,6 @@ export function buildCors(): RequestHandler {
   return cors({
     origin: allowedOrigins(),
     credentials: true,
+    exposedHeaders: ["Content-Disposition"],
   });
 }

@@ -5,6 +5,7 @@ import {Test} from "./models/Test";
 import { Question } from "./models/Question";
 import { Attempt } from "./models/Attempt";
 import { runSweep } from "./jobs/sweep";
+import { RevokedToken } from "./models/RevokedToken";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 
@@ -14,7 +15,12 @@ process.on("unhandledRejection", (reason) => {
 });
 async function main() {
   await connectDB();
-  await Promise.all([Test.syncIndexes(), Question.syncIndexes(), Attempt.syncIndexes()]);
+  await Promise.all([
+    Test.syncIndexes(),
+    Question.syncIndexes(),
+    Attempt.syncIndexes(),
+    RevokedToken.syncIndexes(),
+  ]);
   setInterval(async()=>{
     try{
       const now = new Date();

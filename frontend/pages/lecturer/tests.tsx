@@ -65,6 +65,8 @@ const tests = data?.tests ?? [];
       setDeleteTarget(null);
     } catch (err: any) {
       setError(err.message);
+      mutate(keys.tests);
+      setDeleteTarget(null);
     } finally {
       setDeletingId(null);
     }

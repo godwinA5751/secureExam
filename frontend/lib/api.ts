@@ -227,7 +227,9 @@ export const api = {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `exam-results-${testId}.csv`;
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const match = /filename="([^"]+)"/.exec(disposition);
+    link.download = match?.[1] ?? `test-results-${testId}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();

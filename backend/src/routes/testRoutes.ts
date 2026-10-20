@@ -18,6 +18,7 @@ import {
   exportResults,
   deleteTest,
 } from "../controllers/testController";
+import { aiGenerationLimiter } from "../middleware/rateLimit";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
 const router = Router();
@@ -33,7 +34,7 @@ router.post("/", h(createTest));
 router.post("/:id/roster", upload.single("roster"), h(uploadRoster));
 router.post("/:id/generate-questions", h(generateQuestions));
 router.get("/:id/questions", h(listQuestions));
-router.post("/:id/questions/manual", h(addManualQuestion));
+router.post("/:id/questions/manual", aiGenerationLimiter, h(addManualQuestion));
 router.patch("/:id/questions/:questionId", h(updateQuestion));
 router.patch("/:id/questions", h(reviewQuestions));
 router.post("/:id/link", h(generateLink));

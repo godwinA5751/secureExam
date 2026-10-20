@@ -59,7 +59,7 @@ database is never touched.
 | `SWEEP_SECRET` | Shared secret for `POST /internal/sweep` |
 | `SWEEP_INTERVAL_SECONDS` | In-process sweep interval (default 60, `0` disables) |
 | `LLM_API_KEY`, `GEMINI_MODELS` | Google Gemini key and optional model fallback list |
-| `PORT`, `NODE_ENV` | Server port; set `NODE_ENV=production` when deployed |
+| `PORT`, `NODE_ENV` | Server port; set `NODE_ENV=production` when deployed | `LLM_REQUEST_TIMEOUT_MS`, `LLM_TOTAL_TIMEOUT_MS`, `AI_GENERATIONS_PER_TEST`, `AI_GENERATIONS_PER_LECTURER_PER_HOUR` | AI generation timeouts and usage limits (defaults 30000, 60000, 3, 10) |
 
 Frontend: `NEXT_PUBLIC_API_BASE` (API base URL).
 

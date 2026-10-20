@@ -26,6 +26,7 @@ export interface ITest extends Document {
   durationMinutes: number;
   linkToken: string; // high-entropy, single purpose
   questionGenMode: QuestionGenMode;
+  aiGenerationCount: number;
   allowedStudents: string[]; // ID numbers, sanitized + deduplicated
   rosterNames: IRosterName[];
   requiresAccessCode: boolean;
@@ -127,6 +128,8 @@ const TestSchema = new Schema<ITest>({
     enum: ["ai", "manual"], 
     required: true 
   },
+
+  aiGenerationCount: { type: Number, default: 0 },
 
   allowedStudents: [String],
   rosterNames: [RosterNameSchema],
