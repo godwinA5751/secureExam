@@ -9,6 +9,9 @@ import { generateLinkToken, generateAccessCode } from "../utils/token";
 import { parseRosterCsv } from "../services/csvService";
 import { generateQuestionsForTopics } from "../services/llmService";
 import { buildResultsCsv, fileSlug } from "../services/exportService";
+import { Types } from "mongoose";
+import { User } from "../models/User";
+import { parsePaging } from "../utils/paging";
 
 const createTestSchema = z.object({
   title: z.string().min(3).max(200),
@@ -132,20 +135,58 @@ export async function regenerateAccessCode(req: AuthedRequest, res: Response) {
 }
 
 export async function listMyTests(req: AuthedRequest, res: Response) {
-  const tests = await Test.find({ lecturerId: req.lecturer!.id })
-    .select("title status window linkToken allowedStudents createdAt")
-    .sort({ createdAt: -1 });
+  const lecturerId = new Types.ObjectId(req.lecturer!.id);
+  const { page, pageSize, skip } = parsePaging(req.query, 10, 50);
 
+  const [rows, summaryRows] = await Promise.all([
+    // The roster is counted inside MongoDB, so thousands of IDs are never loaded just to show a number.
+    Test.aggregate([
+      { $match: { lecturerId } },
+      { $sort: { createdAt: -1, _id: -1 } },
+      { $skip: skip },
+      { $limit: pageSize },
+      {
+        $project: {
+          title: 1,
+          status: 1,
+          window: 1,
+          linkToken: 1,
+          createdAt: 1,
+          rosterCount: { $size: { $ifNull: ["$allowedStudents", []] } },
+        },
+      },
+    ]),
+    // Totals across ALL of this lecturer's tests, for the pager and the dashboard cards.
+    Test.aggregate([
+      { $match: { lecturerId } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          published: { $sum: { $cond: [{ $eq: ["$status", "published"] }, 1, 0] } },
+          drafts: { $sum: { $cond: [{ $eq: ["$status", "draft"] }, 1, 0] } },
+          students: { $sum: { $size: { $ifNull: ["$allowedStudents", []] } } },
+        },
+      },
+    ]),
+  ]);
+
+  const s = summaryRows[0] ?? { total: 0, published: 0, drafts: 0, students: 0 };
   return res.json({
-    tests: tests.map((t) => ({
+    tests: rows.map((t: any) => ({
       id: t._id,
       title: t.title,
       status: t.status,
       window: t.window,
       linkToken: t.linkToken,
-      rosterCount: t.allowedStudents.length,
+      rosterCount: t.rosterCount,
       createdAt: t.createdAt,
     })),
+    page,
+    pageSize,
+    total: s.total,
+    totalPages: Math.max(1, Math.ceil(s.total / pageSize)),
+    summary: { total: s.total, published: s.published, drafts: s.drafts, students: s.students },
   });
 }
 
@@ -421,15 +462,51 @@ export async function liveResults(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
   const nameById = nameLookup(test);
+  const { page, pageSize, skip } = parsePaging(req.query, 25, 100);
 
-  const attempts = await Attempt.find({
+  const finalStates = ["submitted", "auto-submitted"];
+  const statusParam = String(req.query.status ?? "all");
+  const filter: Record<string, unknown> = {
     testId: test._id,
-    status: { $in: ["submitted", "auto-submitted"] },
-  })
-    .populate("studentId", "idNumber")
-    .select("studentId status score submittedAt shuffleMap.questionOrder")
-    .sort({ submittedAt: -1 });
+    status: finalStates.includes(statusParam) ? statusParam : { $in: finalStates },
+  };
 
+  // Search matches student ID or roster name. Names live on the test, so resolve matches
+  // to student accounts first. Plain substring matching: no regex built from user input.
+  const q = String(req.query.q ?? "").trim().toLowerCase().slice(0, 100);
+  if (q) {
+    const ids = new Set<string>();
+    for (const id of test.allowedStudents) if (id.toLowerCase().includes(q)) ids.add(id);
+    for (const r of test.rosterNames ?? []) if (r.name.toLowerCase().includes(q)) ids.add(r.idNumber);
+    const users = await User.find({ idNumber: { $in: [...ids] } }).select("_id");
+    filter.studentId = { $in: users.map((u) => u._id) };
+  }
+
+  const [attempts, total, summaryRows] = await Promise.all([
+    Attempt.find(filter)
+      .populate("studentId", "idNumber")
+      .select("studentId status score submittedAt shuffleMap.questionOrder")
+      .sort({ submittedAt: -1, _id: -1 })
+      .skip(skip)
+      .limit(pageSize),
+    Attempt.countDocuments(filter),
+    // Stat cards always describe the WHOLE test, whatever the search or filter says.
+    Attempt.aggregate([
+      { $match: { testId: test._id, status: { $in: finalStates } } },
+      {
+        $group: {
+          _id: null,
+          submitted: { $sum: { $cond: [{ $eq: ["$status", "submitted"] }, 1, 0] } },
+          autoSubmitted: { $sum: { $cond: [{ $eq: ["$status", "auto-submitted"] }, 1, 0] } },
+          scored: { $sum: { $cond: [{ $isNumber: "$score" }, 1, 0] } },
+          scoreSum: { $sum: { $cond: [{ $isNumber: "$score" }, "$score", 0] } },
+          totalPossible: { $max: { $size: { $ifNull: ["$shuffleMap.questionOrder", []] } } },
+        },
+      },
+    ]),
+  ]);
+
+  const agg = summaryRows[0];
   return res.json({
     results: attempts.map((a: any) => {
       const idNumber = a.studentId?.idNumber ?? "";
@@ -442,6 +519,16 @@ export async function liveResults(req: AuthedRequest, res: Response) {
         submittedAt: a.submittedAt ? new Date(a.submittedAt).toISOString() : null,
       };
     }),
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    summary: {
+      submitted: agg?.submitted ?? 0,
+      autoSubmitted: agg?.autoSubmitted ?? 0,
+      averageScore: agg && agg.scored > 0 ? agg.scoreSum / agg.scored : null,
+      totalPossible: agg?.totalPossible || null,
+    },
   });
 }
 

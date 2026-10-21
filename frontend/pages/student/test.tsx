@@ -55,6 +55,7 @@ export default function StudentTest() {
   const [confirming, setConfirming] = useState(false);
   const submittedRef = useRef(false);
   const zeroFiredRef = useRef(false);
+  const [current, setCurrent] = useState(0); // index of the question on screen
 
   // Latest chosen option per question that the server has NOT confirmed yet.
   const pendingRef = useRef<Record<string, number>>({});
@@ -129,7 +130,10 @@ export default function StudentTest() {
     setDeadline(start.deadline);
     const q = await api.getQuestions(linkToken);
     setQuestions(q.questions);
-    setAnswers(q.answers ?? {});
+    const saved = q.answers ?? {};
+    setAnswers(saved);
+    const firstOpen = q.questions.findIndex((x) => saved[x.id] === undefined);
+    setCurrent(firstOpen === -1 ? 0 : firstOpen);
     setStatus("in-progress");
   }
 
@@ -259,6 +263,11 @@ export default function StudentTest() {
     pendingRef.current[questionId] = index; // "latest intent" until the server confirms it
     syncUnsaved();
     enqueue(questionId, () => saveOne(questionId, index)).finally(syncUnsaved);
+  }
+
+  function goTo(index: number) {
+    setCurrent(Math.min(Math.max(index, 0), questions.length - 1));
+    window.scrollTo({ top: 0 });
   }
 
   async function handleSubmit() {
@@ -391,7 +400,7 @@ export default function StudentTest() {
   const unanswered = questions.length - answeredCount;
 
   return (
-    <div className="h-screen bg-slate-50 px-4 py-8">
+    <div className="min-h-screen bg-slate-50 px-4 py-8">
       <div className="mx-auto fixed top-0 left-0 right-0 bg-slate-50 border-b border-slate-200 p-4 z-10">
         <div className="flex items-center justify-between">
           <h1 className="text-base font-semibold text-slate-800">SecureExam</h1>
@@ -409,30 +418,100 @@ export default function StudentTest() {
           </p>
         )}
       </div>
-      <div className="overflow-y-auto max-w-2xl mx-auto pt-24 pb-4">
+      <div className="max-w-2xl mx-auto pt-20 pb-10">
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
-        <div className="space-y-6">
-          {questions.map((q, i) => (
-            <div key={q.id} className="bg-white rounded-xl border border-slate-200 p-5">
-              <p className="text-sm font-medium text-slate-800 mb-3">
-                {i + 1}. {q.text}
-              </p>
-              <div className="space-y-2">
-                {q.options.map((opt, idx) => (
-                  <label key={idx} className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="radio"
-                      name={q.id}
-                      checked={answers[q.id] === idx}
-                      onChange={() => handleAnswer(q.id, idx)}
-                    />
-                    {opt}
-                  </label>
-                ))}
+        {questions[current] && (
+          <section
+            key={questions[current].id}
+            className="bg-white rounded-xl border border-slate-200 p-6"
+          >
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Question {current + 1} of {questions.length}
+            </p>
+            <fieldset className="mt-2">
+              <legend className="text-base font-medium text-slate-800">{questions[current].text}</legend>
+              <div className="mt-4 space-y-2">
+                {questions[current].options.map((opt, idx) => {
+                  const q = questions[current];
+                  const selected = answers[q.id] === idx;
+                  return (
+                    <label
+                      key={idx}
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-sm ${
+                        selected
+                          ? "border-violet-500 bg-violet-50 text-slate-900"
+                          : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={q.id}
+                        checked={selected}
+                        onChange={() => handleAnswer(q.id, idx)}
+                      />
+                      {opt}
+                    </label>
+                  );
+                })}
               </div>
-            </div>
-          ))}
+            </fieldset>
+          </section>
+        )}
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => goTo(current - 1)}
+            disabled={current === 0}
+            className="rounded-lg border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            onClick={() => goTo(current + 1)}
+            disabled={current >= questions.length - 1}
+            className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-slate-600">Questions</p>
+            <p className="text-xs text-slate-400">
+              {answeredCount} of {questions.length} answered
+            </p>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {questions.map((q, i) => {
+              const isCurrent = i === current;
+              const isAnswered = answers[q.id] !== undefined;
+              return (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => goTo(i)}
+                  aria-label={`Question ${i + 1}, ${isAnswered ? "answered" : "not answered"}`}
+                  aria-current={isCurrent ? "step" : undefined}
+                  className={`h-9 w-9 rounded-lg border text-xs font-medium cursor-pointer ${
+                    isCurrent
+                      ? "border-violet-600 bg-violet-600 text-white"
+                      : isAnswered
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-xs text-slate-400">
+            Purple is the question you are on, green is answered, white is not answered yet.
+          </p>
         </div>
 
         {submitError && <p className="mt-6 text-sm text-red-600">{submitError}</p>}

@@ -1,19 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import LecturerLayout from "../../../components/LecturerLayout";
+import Pagination from "../../../components/Pagination";
 import { Skeleton } from "../../../components/Skeleton";
 import { api } from "../../../lib/api";
-import { useResults } from "../../../lib/hooks";
-
-// type ResultRow = {
-//   idNumber: string;
-//   status: "submitted" | "auto-submitted";
-//   score: number | null;
-//   submittedAt: string | null;
-// };
+import { useResults, useDebounced } from "../../../lib/hooks";
 
 type StatusFilter = "all" | "submitted" | "auto-submitted";
+const PAGE_SIZES = [10, 25, 50, 100];
 
 export default function TestResults() {
   const router = useRouter();
@@ -22,12 +17,19 @@ export default function TestResults() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const debouncedSearch = useDebounced(search.trim(), 300); // one request per pause, not per keystroke
 
-  const { data, error: loadError, isLoading: loading } = useResults(
+  const { data, isLoading: loading } = useResults(
     typeof testId === "string" ? testId : undefined,
+    { page, pageSize, q: debouncedSearch, status: filter },
     true // live: refresh every 5s
   );
   const results = data?.results ?? [];
+  const summary = data?.summary;
+  const total = data?.total ?? 0;
+  const totalFinished = (summary?.submitted ?? 0) + (summary?.autoSubmitted ?? 0);
 
   useEffect(() => {
     if (!error) return;
@@ -35,22 +37,15 @@ export default function TestResults() {
     return () => clearTimeout(t);
   }, [error]);
 
-  const filteredResults = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+  // Stay on a page that exists.
+  useEffect(() => {
+    if (data && page > data.totalPages) setPage(data.totalPages);
+  }, [data, page]);
 
-    return results.filter((result) => {
-      const matchesSearch = !normalizedSearch || result.idNumber.toLowerCase().includes(normalizedSearch) ||(result.name ?? "").toLowerCase().includes(normalizedSearch);
-      const matchesFilter = filter === "all" || result.status === filter;
-      return matchesSearch && matchesFilter;
-    });
-  }, [results, search, filter]);
-
-  const submittedCount = results.filter((r) => r.status === "submitted").length;
-  const autoSubmittedCount = results.filter((r) => r.status === "auto-submitted").length;
-
-  const scores = results.map((r) => r.score).filter((s): s is number => s !== null);
-  const averageScore = scores.length > 0 ? scores.reduce((total, s) => total + s, 0) / scores.length : null;
-  const totalPossible = results.find((r) => r.total)?.total ?? null;
+  const averageText =
+    summary?.averageScore != null
+      ? `${summary.averageScore.toFixed(1)}${summary.totalPossible ? `/${summary.totalPossible}` : ""}`
+      : "—";
 
   async function handleExport() {
     if (typeof testId !== "string") return;
@@ -76,7 +71,7 @@ export default function TestResults() {
 
           <button
             onClick={handleExport}
-            disabled={loading || results.length === 0}
+            disabled={loading || totalFinished === 0}
             className="rounded-lg bg-violet-600 text-white px-4 py-2 text-sm font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Export CSV
@@ -91,17 +86,9 @@ export default function TestResults() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-        <StatCard label="Submitted" value={submittedCount} loading={loading} />
-        <StatCard label="Auto-submitted" value={autoSubmittedCount} loading={loading} />
-        <StatCard
-          label="Average score"
-          value={
-            averageScore !== null
-              ? `${averageScore.toFixed(1)}${totalPossible ? `/${totalPossible}` : ""}`
-              : "—"
-          }
-          loading={loading}
-        />
+        <StatCard label="Submitted" value={summary?.submitted ?? 0} loading={loading} />
+        <StatCard label="Auto-submitted" value={summary?.autoSubmitted ?? 0} loading={loading} />
+        <StatCard label="Average score" value={averageText} loading={loading} />
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -110,14 +97,20 @@ export default function TestResults() {
             type="text"
             placeholder="Search name or student ID..."
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             disabled={loading}
             className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:bg-slate-50"
           />
 
           <select
             value={filter}
-            onChange={(event) => setFilter(event.target.value as StatusFilter)}
+            onChange={(event) => {
+              setFilter(event.target.value as StatusFilter);
+              setPage(1);
+            }}
             disabled={loading}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500 disabled:bg-slate-50"
           >
@@ -125,17 +118,34 @@ export default function TestResults() {
             <option value="submitted">Submitted</option>
             <option value="auto-submitted">Auto-submitted</option>
           </select>
+
+          <select
+            value={pageSize}
+            onChange={(event) => {
+              setPageSize(Number(event.target.value));
+              setPage(1);
+            }}
+            disabled={loading}
+            aria-label="Results per page"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500 disabled:bg-slate-50"
+          >
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n} per page
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {!loading && results.length === 0 ? (
+      {!loading && totalFinished === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
           <p className="text-sm font-medium text-slate-700">No submitted results yet.</p>
           <p className="text-xs text-slate-400 mt-1">
             Results will appear here when students submit their attempts.
           </p>
         </div>
-      ) : !loading && filteredResults.length === 0 ? (
+      ) : !loading && total === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
           <p className="text-sm text-slate-500">No results match your search.</p>
         </div>
@@ -174,7 +184,7 @@ export default function TestResults() {
                         </td>
                       </tr>
                     ))
-                  : filteredResults.map((result, index) => (
+                  : results.map((result, index) => (
                       <tr key={`${result.idNumber}-${result.submittedAt}-${index}`} className="hover:bg-slate-50">
                         <td className="px-5 py-4 font-medium text-slate-800">{result.idNumber || "Unknown"}</td>
                         <td className="px-5 py-4 text-slate-700">{result.name || "—"}</td>
@@ -201,9 +211,13 @@ export default function TestResults() {
             {loading ? (
               <Skeleton className="h-3 w-40" />
             ) : (
-              <p className="text-xs text-slate-400">
-                Showing {filteredResults.length} of {results.length} result{results.length === 1 ? "" : "s"}.
-              </p>
+              <Pagination
+                page={page}
+                totalPages={data?.totalPages ?? 1}
+                total={total}
+                pageSize={pageSize}
+                onPageChange={setPage}
+              />
             )}
           </div>
         </div>

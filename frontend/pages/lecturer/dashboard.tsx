@@ -13,18 +13,20 @@ import { Skeleton, StatCardSkeleton } from "../../components/Skeleton";
 // };
 
 export default function Dashboard() {
-  const { data: testsData, error: testsError, isLoading: testsLoading } = useTests();
+  const { data: testsData, error: testsError, isLoading: testsLoading } = useTests(1, 5);
   const { data: me, error: meError, isLoading: meLoading } = useMe();
 
-  const tests = testsData?.tests ?? [];
+  const tests = testsData?.tests ?? []; // the 5 newest tests
+  const summary = testsData?.summary;
   const name = me?.name ?? "";
   const loading = testsLoading || meLoading; // true only on the first load, so your skeleton shows once
   const error = (testsError ?? meError)?.message ?? null;
 
-  const published = tests.filter((t) => t.status === "published").length;
-  const drafts = tests.filter((t) => t.status === "draft").length;
-  const totalStudents = tests.reduce((sum, t) => sum + t.rosterCount, 0);
-  const recent = tests.slice(0, 5);
+  const published = summary?.published ?? 0;
+  const drafts = summary?.drafts ?? 0;
+  const totalStudents = summary?.students ?? 0;
+  const totalTests = summary?.total ?? 0;
+  const recent = tests;
 
   return (
     <LecturerLayout>
@@ -47,7 +49,7 @@ export default function Dashboard() {
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-            <StatCard label="Total tests" value={tests.length} accent="bg-violet-500" />
+            <StatCard label="Total tests" value={totalTests} accent="bg-violet-500" />
             <StatCard label="Published" value={published} accent="bg-emerald-500" />
             <StatCard label="Drafts" value={drafts} accent="bg-amber-500" />
             <StatCard label="Students on rosters" value={totalStudents} accent="bg-sky-500" />

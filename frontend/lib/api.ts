@@ -112,7 +112,7 @@ export const api = {
     method: "POST",
   }),
 
-  listMyTests: () =>
+  listMyTests: (page = 1, pageSize = 10) =>
     request<{
       tests: {
         id: string;
@@ -123,7 +123,12 @@ export const api = {
         rosterCount: number;
         createdAt: string;
       }[];
-    }>("/api/tests"),
+      page: number;
+      pageSize: number;
+      total: number;
+      totalPages: number;
+      summary: { total: number; published: number; drafts: number; students: number };
+    }>(`/api/tests?page=${page}&pageSize=${pageSize}`),
 
   regenerateAccessCode: (testId: string) =>
     request<{ accessCode: string }>(`/api/tests/${testId}/access-code/regenerate`, { method: "POST" }),
@@ -200,7 +205,10 @@ export const api = {
   generateLink: (testId: string) =>
     request<{ linkToken: string; status: string }>(`/api/tests/${testId}/link`, { method: "POST" }),
 
-  liveResults: (testId: string) =>
+  liveResults: (
+    testId: string,
+    query: { page: number; pageSize: number; q: string; status: string }
+  ) =>
     request<{
       results: {
         idNumber: string;
@@ -210,7 +218,24 @@ export const api = {
         total: number | null;
         submittedAt: string | null;
       }[];
-    }>(`/api/tests/${testId}/results`),
+      page: number;
+      pageSize: number;
+      total: number;
+      totalPages: number;
+      summary: {
+        submitted: number;
+        autoSubmitted: number;
+        averageScore: number | null;
+        totalPossible: number | null;
+      };
+    }>(
+      `/api/tests/${testId}/results?${new URLSearchParams({
+        page: String(query.page),
+        pageSize: String(query.pageSize),
+        q: query.q,
+        status: query.status,
+      })}`
+    ),
 
   exportResults: async (testId: string): Promise<void> => {
     const res = await fetch(`${API_BASE}/api/tests/${testId}/export`, {

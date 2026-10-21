@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { mutate } from "swr";
-import { useTests, keys } from "../../lib/hooks";
 import Link from "next/link";
 import LecturerLayout from "../../components/LecturerLayout";
 import { Skeleton } from "../../components/Skeleton";
 import { api } from "../../lib/api";
+import { useTests, keys, invalidateTests, clearResults } from "../../lib/hooks";
+import Pagination from "../../components/Pagination";
 
 type TestRow = {
   id: string;
@@ -16,9 +17,12 @@ type TestRow = {
   createdAt: string;
 };
 
+const PAGE_SIZE = 10;
 export default function Tests() {
-  const { data, error: loadError, isLoading: loading } = useTests();
-const tests = data?.tests ?? [];
+  const [page, setPage] = useState(1);
+  const { data, isLoading: loading, isValidating } = useTests(page, PAGE_SIZE);
+  const tests = data?.tests ?? [];
+  const totalPages = data?.totalPages ?? 1;
   const [newCode, setNewCode] = useState<{ testId: string; code: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
@@ -30,6 +34,10 @@ const tests = data?.tests ?? [];
     const t = setTimeout(() => setError(null), 5000);
     return () => clearTimeout(t);
   }, [error]);
+
+  useEffect(() => {
+    if (data && page > data.totalPages) setPage(data.totalPages);
+  }, [data, page]);
 
   async function handleRegenerate(testId: string) {
     setError(null);
@@ -53,21 +61,22 @@ const tests = data?.tests ?? [];
     if (!deleteTarget) return;
 
     setDeletingId(deleteTarget.id);
+    setError(null);
+    // Remove the row right away on this page; the refetch below corrects the counts and refills it.
     mutate(
-      keys.tests,
-      (cur: { tests: TestRow[] } | undefined) => cur && { tests: cur.tests.filter((t) => t.id !== deleteTarget.id) },
+      [keys.tests, page, PAGE_SIZE],
+      (cur: any) => cur && { ...cur, tests: cur.tests.filter((t: TestRow) => t.id !== deleteTarget.id) },
       { revalidate: false }
     );
-    mutate(keys.results(deleteTarget.id), undefined, { revalidate: false });
-    setError(null);
+    clearResults(deleteTarget.id);
     try {
       await api.deleteTest(deleteTarget.id);
       setDeleteTarget(null);
     } catch (err: any) {
       setError(err.message);
-      mutate(keys.tests);
       setDeleteTarget(null);
     } finally {
+      invalidateTests(); // success: fresh counts. Failure: puts back the row we removed.
       setDeletingId(null);
     }
   }
@@ -154,6 +163,22 @@ const tests = data?.tests ?? [];
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {!loading && (
+        <div className="mt-4">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={data?.total ?? 0}
+            pageSize={PAGE_SIZE}
+            disabled={isValidating}
+            onPageChange={(p) => {
+              setPage(p);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
         </div>
       )}
 
