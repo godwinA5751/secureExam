@@ -18,6 +18,8 @@ export interface IAttempt extends Document {
   studentId: Types.ObjectId;
   status: AttemptStatus;
   shuffleMap: { questionOrder: Types.ObjectId[]; optionOrder: Record<string, number[]> };
+  marksPerQuestion: number; // snapshot taken when the attempt starts
+  totalMarks: number | null;
   answers: IAnswer[];
   score: number | null;
   startedAt: Date;
@@ -75,6 +77,8 @@ const AttemptSchema = new Schema<IAttempt>({
   ],
 
   score: { type: Number, default: null },
+  marksPerQuestion: { type: Number, default: 1 },
+  totalMarks: { type: Number, default: null },
   startedAt: { type: Date, required: true },
   deadline: { type: Date, required: true },
   wasShortened: { type: Boolean, default: false },

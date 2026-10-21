@@ -1,6 +1,5 @@
 import { Schema, model, Document, Types } from "mongoose";
 
-export type QuestionGenMode = "ai" | "manual";
 export type TestStatus = "draft" | "published";
 export type TestWindow = "opened" | "closed";
 
@@ -25,10 +24,11 @@ export interface ITest extends Document {
   loginWindowEnd: Date;
   durationMinutes: number;
   linkToken: string; // high-entropy, single purpose
-  questionGenMode: QuestionGenMode;
   aiGenerationCount: number;
   allowedStudents: string[]; // ID numbers, sanitized + deduplicated
   rosterNames: IRosterName[];
+  questionsPerStudent: number | null; // null = every student gets every approved question
+  marksPerQuestion: 1 | 2;
   requiresAccessCode: boolean;
   accessCodeHash?: string | null; // second factor, hashed - never store plaintext
   status: TestStatus;
@@ -123,16 +123,13 @@ const TestSchema = new Schema<ITest>({
     index: true 
   },
 
-  questionGenMode: { 
-    type: String, 
-    enum: ["ai", "manual"], 
-    required: true 
-  },
-
   aiGenerationCount: { type: Number, default: 0 },
 
   allowedStudents: [String],
   rosterNames: [RosterNameSchema],
+
+  questionsPerStudent: { type: Number, default: null, min: 1 },
+  marksPerQuestion: { type: Number, enum: [1, 2], default: 1 },
 
   requiresAccessCode: { 
     type: Boolean, 

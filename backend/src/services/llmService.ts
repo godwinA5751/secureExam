@@ -145,9 +145,16 @@ async function callGemini(apiKey: string, prompt: string): Promise<string> {
   throw new Error(`All Gemini models failed. ${failures.join("; ")}`);
 }
 
+/** Splits `total` as evenly as possible: 7 over 3 topics gives [3, 2, 2]. */
+export function splitCount(total: number, parts: number): number[] {
+  const base = Math.floor(total / parts);
+  const extra = total % parts;
+  return Array.from({ length: parts }, (_, i) => base + (i < extra ? 1 : 0));
+}
+
 export async function generateQuestionsForTopics(
   topics: string[],
-  countPerTopic = 5
+  total = topics.length * 5
 ): Promise<GeneratedQuestion[]> {
   const apiKey = process.env.LLM_API_KEY;
   if (!apiKey) {
@@ -156,12 +163,22 @@ export async function generateQuestionsForTopics(
   if (!Array.isArray(topics) || topics.length === 0 || topics.length > 20) {
     throw new Error("Provide between 1 and 20 topics");
   }
+  if (!Number.isInteger(total) || total < 1 || total > 100) {
+    throw new Error("Choose between 1 and 100 questions");
+  }
+
+  const plan = splitCount(total, topics.length)
+    .map((n, i) => ({ topic: topics[i], n }))
+    .filter((p) => p.n > 0)
+    .map((p) => `${p.n} for "${p.topic}"`)
+    .join("; ");
 
   const prompt = [
-    `Generate exactly ${countPerTopic} multiple-choice exam questions for EACH of these topics: ${topics.join(", ")}.`,
+    `Generate exactly ${total} multiple-choice exam questions in total, split by topic as follows: ${plan}.`,
     "Each question must have exactly 4 options, plausible distractors, and exactly one correct answer.",
     "Set correctOptionIndex to the 0-based index of the correct option within that question's options array.",
     "Set topic to exactly one of the provided topic strings, unchanged.",
+    "Do not repeat or closely paraphrase any question.",
     "Do not include any explanation, markdown, or text outside the JSON array.",
   ].join(" ");
 
@@ -174,5 +191,6 @@ export async function generateQuestionsForTopics(
     throw new Error("Gemini response was not valid JSON");
   }
 
-  return validate(parsed, topics);
+  // Never save more than was asked for, even if the model sends extra.
+  return validate(parsed, topics).slice(0, total);
 }

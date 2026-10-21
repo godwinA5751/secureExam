@@ -10,6 +10,8 @@ type Info = {
   durationMinutes: number;
   minutesAvailable: number;
   questionCount: number;
+  totalMarks: number;
+  marksPerQuestion: number;
 };
 
 const statusOf = (e: any): number | null => (typeof e?.status === "number" ? e.status : null);
@@ -56,6 +58,7 @@ export default function StudentTest() {
   const submittedRef = useRef(false);
   const zeroFiredRef = useRef(false);
   const [current, setCurrent] = useState(0); // index of the question on screen
+  const [marksPer, setMarksPer] = useState(1);
 
   // Latest chosen option per question that the server has NOT confirmed yet.
   const pendingRef = useRef<Record<string, number>>({});
@@ -130,6 +133,7 @@ export default function StudentTest() {
     setDeadline(start.deadline);
     const q = await api.getQuestions(linkToken);
     setQuestions(q.questions);
+    setMarksPer(q.marksPerQuestion ?? 1);
     const saved = q.answers ?? {};
     setAnswers(saved);
     const firstOpen = q.questions.findIndex((x) => saved[x.id] === undefined);
@@ -334,7 +338,8 @@ export default function StudentTest() {
         <div className="mx-auto max-w-xl rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
           <h1 className="text-lg font-semibold text-slate-800">{info.title}</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {info.questionCount} question{info.questionCount === 1 ? "" : "s"} · {info.minutesAvailable} minute
+            {info.questionCount} question{info.questionCount === 1 ? "" : "s"} · {info.totalMarks} mark
+            {info.totalMarks === 1 ? "" : "s"} · {info.minutesAvailable} minute
             {info.minutesAvailable === 1 ? "" : "s"}
             {shortened && " (shortened because the test closes soon)"}
           </p>
@@ -427,7 +432,7 @@ export default function StudentTest() {
             className="bg-white rounded-xl border border-slate-200 p-6"
           >
             <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Question {current + 1} of {questions.length}
+              Question {current + 1} of {questions.length} · {marksPer} mark{marksPer === 1 ? "" : "s"}
             </p>
             <fieldset className="mt-2">
               <legend className="text-base font-medium text-slate-800">{questions[current].text}</legend>

@@ -6,6 +6,8 @@ type ExportAttempt = {
   submittedAt?: Date | null;
   visibilityEvents?: { type: string }[];
   shuffleMap?: { questionOrder?: unknown[] };
+  totalMarks?: number | null;
+  marksPerQuestion?: number | null;
 };
 
 type ExportTest = {
@@ -67,7 +69,8 @@ export function buildResultsCsv(test: ExportTest, attempts: ExportAttempt[]): st
 
   for (const a of attempts) {
     const idNumber = a.studentId?.idNumber ?? "";
-    const total = a.shuffleMap?.questionOrder?.length ?? "";
+    const questionCount = a.shuffleMap?.questionOrder?.length ?? 0;
+    const total = a.totalMarks ?? (questionCount ? questionCount * (a.marksPerQuestion ?? 1) : "");
     const hasScore = typeof a.score === "number";
     rows.set(idNumber, [
       idNumber,

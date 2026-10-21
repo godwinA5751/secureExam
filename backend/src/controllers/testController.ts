@@ -12,6 +12,7 @@ import { buildResultsCsv, fileSlug } from "../services/exportService";
 import { Types } from "mongoose";
 import { User } from "../models/User";
 import { parsePaging } from "../utils/paging";
+import { totalMarksOf } from "../services/scoring";
 
 const createTestSchema = z.object({
   title: z.string().min(3).max(200),
@@ -20,7 +21,6 @@ const createTestSchema = z.object({
   loginWindowStart: z.string().datetime(),
   loginWindowEnd: z.string().datetime(),
   durationMinutes: z.number().int().min(1).max(480),
-  questionGenMode: z.enum(["ai", "manual"]),
   requiresAccessCode: z.boolean().optional(),
 });
 
@@ -50,7 +50,6 @@ export async function createTest(req: AuthedRequest, res: Response) {
     loginWindowEnd: end,
     durationMinutes: data.durationMinutes,
     linkToken: generateLinkToken(),
-    questionGenMode: data.questionGenMode,
     allowedStudents: [],
     requiresAccessCode,
     accessCodeHash,
@@ -200,10 +199,23 @@ function rejectIfPublished(test: { status: string }, res: Response): boolean {
 }
 
 const MAX_AI_GENERATIONS_PER_TEST = Number(process.env.AI_GENERATIONS_PER_TEST ?? 3);
+const MAX_QUESTIONS_PER_RUN = Number(process.env.AI_MAX_QUESTIONS_PER_RUN ?? 40);
+const generateSchema = z.object({
+  count: z.number().int().min(1).max(MAX_QUESTIONS_PER_RUN).optional(),
+});
+
 export async function generateQuestions(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
   if (rejectIfPublished(test, res)) return;
+
+  const parsed = generateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: `Choose between 1 and ${MAX_QUESTIONS_PER_RUN} questions to generate` });
+  }
+  const count = parsed.data.count ?? Math.min(MAX_QUESTIONS_PER_RUN, test.topics.length * 5);
 
   // Reserve one run atomically. This also stops a double-click from running two at once
   // past the cap. Tests created before this field existed count as 0 runs used.
@@ -226,19 +238,20 @@ export async function generateQuestions(req: AuthedRequest, res: Response) {
 
   const started = Date.now();
   try {
-    const generated = await generateQuestionsForTopics(test.topics);
+    const generated = await generateQuestionsForTopics(test.topics, count);
     const docs = await Question.insertMany(
       generated.map((g) => ({ ...g, testId: test._id, approved: false }))
     );
     console.log("[ai] generated", {
       lecturerId: req.lecturer!.id,
       testId: test._id.toString(),
-      topics: test.topics.length,
+      requested: count,
       questions: docs.length,
       ms: Date.now() - started,
     });
     return res.status(201).json({
       count: docs.length,
+      requested: count,
       remainingGenerations: Math.max(0, MAX_AI_GENERATIONS_PER_TEST - reserved.aiGenerationCount),
       note: "Questions require lecturer review/approval before the test can be published.",
     });
@@ -444,6 +457,11 @@ export async function generateLink(req: AuthedRequest, res: Response) {
   if (approvedCount === 0) {
     return res.status(400).json({ error: "Add at least one question before publishing" });
   }
+  if (test.questionsPerStudent && test.questionsPerStudent > approvedCount) {
+    return res.status(400).json({
+      error: `Each student is set to get ${test.questionsPerStudent} questions, but only ${approvedCount} are approved. Approve or add more questions, or lower the number per student.`,
+    });
+  }
   if (test.allowedStudents.length === 0) {
     return res.status(400).json({ error: "Upload a roster before publishing" });
   }
@@ -485,7 +503,7 @@ export async function liveResults(req: AuthedRequest, res: Response) {
   const [attempts, total, summaryRows] = await Promise.all([
     Attempt.find(filter)
       .populate("studentId", "idNumber")
-      .select("studentId status score submittedAt shuffleMap.questionOrder")
+      .select("studentId status score submittedAt shuffleMap.questionOrder totalMarks marksPerQuestion")
       .sort({ submittedAt: -1, _id: -1 })
       .skip(skip)
       .limit(pageSize),
@@ -500,7 +518,19 @@ export async function liveResults(req: AuthedRequest, res: Response) {
           autoSubmitted: { $sum: { $cond: [{ $eq: ["$status", "auto-submitted"] }, 1, 0] } },
           scored: { $sum: { $cond: [{ $isNumber: "$score" }, 1, 0] } },
           scoreSum: { $sum: { $cond: [{ $isNumber: "$score" }, "$score", 0] } },
-          totalPossible: { $max: { $size: { $ifNull: ["$shuffleMap.questionOrder", []] } } },
+          totalPossible: {
+            $max: {
+              $ifNull: [
+                "$totalMarks",
+                {
+                  $multiply: [
+                    { $size: { $ifNull: ["$shuffleMap.questionOrder", []] } },
+                    { $ifNull: ["$marksPerQuestion", 1] },
+                  ],
+                },
+              ],
+            },
+          },
         },
       },
     ]),
@@ -515,7 +545,7 @@ export async function liveResults(req: AuthedRequest, res: Response) {
         name: nameById.get(idNumber) ?? "",
         status: a.status === "auto-submitted" ? "auto-submitted" : "submitted",
         score: a.score ?? null,
-        total: a.shuffleMap?.questionOrder?.length ?? null,
+        total: totalMarksOf(a),
         submittedAt: a.submittedAt ? new Date(a.submittedAt).toISOString() : null,
       };
     }),
@@ -532,6 +562,35 @@ export async function liveResults(req: AuthedRequest, res: Response) {
   });
 }
 
+const settingsSchema = z.object({
+  questionsPerStudent: z.number().int().min(1).max(500).nullable().optional(),
+  marksPerQuestion: z.union([z.literal(1), z.literal(2)]).optional(),
+});
+
+export async function updateSettings(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+  if (test.status === "published") {
+    return res.status(400).json({ error: "This test is published, so its settings can no longer be changed" });
+  }
+
+  const parsed = settingsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid settings" });
+
+  if (parsed.data.questionsPerStudent !== undefined) {
+    test.questionsPerStudent = parsed.data.questionsPerStudent;
+  }
+  if (parsed.data.marksPerQuestion !== undefined) {
+    test.marksPerQuestion = parsed.data.marksPerQuestion;
+  }
+  await test.save();
+
+  return res.json({
+    questionsPerStudent: test.questionsPerStudent ?? null,
+    marksPerQuestion: test.marksPerQuestion ?? 1,
+  });
+}
+
 export async function exportResults(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
@@ -539,7 +598,7 @@ export async function exportResults(req: AuthedRequest, res: Response) {
   // No answers are loaded here: the export doesn't need them and they make big classes slow.
   const attempts = await Attempt.find({ testId: test._id })
     .populate("studentId", "idNumber")
-    .select("studentId status score startedAt submittedAt visibilityEvents shuffleMap.questionOrder");
+    .select("studentId status score startedAt submittedAt visibilityEvents shuffleMap.questionOrder totalMarks marksPerQuestion");
 
   const csv = buildResultsCsv(test, attempts as any[]);
   const filename = `${fileSlug(test.title)}-results-${new Date().toISOString().slice(0, 10)}.csv`;

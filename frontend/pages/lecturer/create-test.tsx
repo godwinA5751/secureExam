@@ -47,6 +47,11 @@ export default function CreateTest() {
   const [creating, setCreating] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
+  const [aiCount, setAiCount] = useState(10);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  const [perStudent, setPerStudent] = useState(""); // "" = every student gets every question
+  const [marks, setMarks] = useState<1 | 2>(1);
+
   const aiMessages = useMemo(() => {
     const topicList = topics.split(",").map((s) => s.trim()).filter(Boolean)
     return [
@@ -93,7 +98,6 @@ export default function CreateTest() {
         loginWindowEnd: new Date(end).toISOString(),
         durationMinutes: duration,
         instructions: instructions.trim(),
-        questionGenMode: "manual",
         requiresAccessCode: true,
       });
       setTestId(test.id);
@@ -126,9 +130,13 @@ export default function CreateTest() {
   async function handleGenerateAI() {
     if (!testId) return;
     setError(null);
+    setAiNote(null);
     setAiLoading(true);
     try {
-      await api.generateQuestions(testId);
+      const res = await api.generateQuestions(testId, aiCount);
+      if (res.count < res.requested) {
+        setAiNote(`Generated ${res.count} of ${res.requested}. Some were invalid and skipped.`);
+      }
       await refreshQuestions(testId);
     } catch (err: any) {
       setError(err.message);
@@ -240,6 +248,10 @@ export default function CreateTest() {
     setError(null);
     setPublishing(true);
     try {
+      await api.updateSettings(testId, {
+        questionsPerStudent: perStudent === "" ? null : Number(perStudent),
+        marksPerQuestion: marks,
+      });
       await api.generateLink(testId);
       setPublished(true);
       invalidateTests();
@@ -252,6 +264,10 @@ export default function CreateTest() {
 
   const approvedCount = questions.filter((q) => q.approved).length;
   const unapprovedCount = questions.length - approvedCount;
+
+  const perStudentNum = perStudent === "" ? null : Number(perStudent);
+  const examSize = perStudentNum ? Math.min(perStudentNum, approvedCount) : approvedCount;
+  const tooMany = perStudentNum !== null && perStudentNum > approvedCount;
 
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
@@ -331,6 +347,22 @@ export default function CreateTest() {
             <div className="border-t border-slate-200 pt-5">
               <h2 className="text-sm font-semibold text-slate-800 mb-3">Questions</h2>
 
+              <div className="mb-2 flex items-center gap-2">
+                <label htmlFor="ai-count" className="text-xs text-slate-600">
+                  Questions to generate
+                </label>
+                <input
+                  id="ai-count"
+                  type="number"
+                  min={1}
+                  max={40}
+                  value={aiCount}
+                  onChange={(e) => setAiCount(Math.min(40, Math.max(1, Number(e.target.value) || 1)))}
+                  className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                />
+                <span className="text-xs text-slate-400">spread across your topics</span>
+              </div>
+
               <button
                 onClick={handleGenerateAI}
                 disabled={aiLoading}
@@ -351,6 +383,8 @@ export default function CreateTest() {
                   "Generate questions with AI"
                 )}
               </button>
+
+              {aiNote && <p className="mb-3 text-xs text-amber-700">{aiNote}</p>}
 
               <form onSubmit={handleAddManual} className="space-y-2 mb-4 bg-slate-50 rounded-lg p-4">
                 <p className="text-xs font-medium text-slate-600 mb-1">Add a question manually</p>
@@ -532,9 +566,51 @@ export default function CreateTest() {
               )}
             </div>
 
+            <div className="border-t border-slate-200 pt-5">
+              <h2 className="text-sm font-semibold text-slate-800 mb-3">Exam settings</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="per-student" className="block text-xs text-slate-600 mb-1">
+                    Questions per student
+                  </label>
+                  <input
+                    id="per-student"
+                    type="number"
+                    min={1}
+                    value={perStudent}
+                    placeholder={`All (${approvedCount})`}
+                    onChange={(e) => setPerStudent(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="marks" className="block text-xs text-slate-600 mb-1">
+                    Marks per question
+                  </label>
+                  <select
+                    id="marks"
+                    value={marks}
+                    onChange={(e) => setMarks(Number(e.target.value) as 1 | 2)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value={1}>1 mark</option>
+                    <option value={2}>2 marks</option>
+                  </select>
+                </div>
+              </div>
+              <p className={`mt-2 text-xs ${tooMany ? "text-red-600" : "text-slate-500"}`}>
+                {approvedCount === 0
+                  ? "Approve some questions to see how big each student's exam will be."
+                  : tooMany
+                    ? `Only ${approvedCount} questions are approved, so each student cannot get ${perStudentNum}.`
+                    : `Pool: ${approvedCount} approved. Each student gets ${examSize} question${examSize === 1 ? "" : "s"}, ${examSize * marks} marks in total.`}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">Applied when you publish. Leave blank to give everyone every question.</p>
+            </div>
+
             <button
               onClick={handlePublish}
-              disabled={approvedCount === 0 || aiLoading || publishing}
+              disabled={approvedCount === 0 || aiLoading || publishing || tooMany}
               className="w-full rounded-lg bg-emerald-700 text-white py-2 text-sm font-medium disabled:opacity-50"
             >
               {publishing ? "Publishing..." : "Publish test"}

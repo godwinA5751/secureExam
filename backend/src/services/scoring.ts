@@ -15,25 +15,27 @@ export type FinalStatus = "submitted" | "auto-submitted";
 export function scoreAnswers(
   answers: AnswerLike[],
   optionOrder: Record<string, number[]> | undefined,
-  keyById: Map<string, number>
+  keyById: Map<string, number>,
+  marksPerQuestion = 1
 ): number {
   const latest = new Map<string, number>();
   for (const a of answers) latest.set(a.questionId.toString(), a.selectedOptionIndex);
 
-  let score = 0;
+  let correctCount = 0;
   latest.forEach((displayed, qid) => {
     const correct = keyById.get(qid);
     if (correct === undefined) return;
     const order = optionOrder?.[qid];
     const original = order ? order[displayed] : displayed;
-    if (original === correct) score += 1;
+    if (original === correct) correctCount += 1;
   });
-  return score;
+  return correctCount * marksPerQuestion;
 }
 
 export async function computeScore(attempt: {
   answers: AnswerLike[];
   shuffleMap: { optionOrder: Record<string, number[]> };
+  marksPerQuestion?: number | null;
 }): Promise<number> {
   const ids = Array.from(new Set(attempt.answers.map((a) => a.questionId.toString())));
   if (ids.length === 0) return 0;
@@ -42,7 +44,24 @@ export async function computeScore(attempt: {
   const keyById = new Map<string, number>(
     questions.map((q) => [q._id.toString(), q.correctOptionIndex] as [string, number])
   );
-  return scoreAnswers(attempt.answers, attempt.shuffleMap?.optionOrder, keyById);
+  return scoreAnswers(
+    attempt.answers,
+    attempt.shuffleMap?.optionOrder,
+    keyById,
+    attempt.marksPerQuestion ?? 1
+  );
+}
+
+/** Marks available on an attempt. Older attempts predate marks and count 1 per question. */
+export function totalMarksOf(attempt: {
+  totalMarks?: number | null;
+  marksPerQuestion?: number | null;
+  shuffleMap?: { questionOrder?: unknown[] };
+}): number {
+  return (
+    attempt.totalMarks ??
+    (attempt.shuffleMap?.questionOrder?.length ?? 0) * (attempt.marksPerQuestion ?? 1)
+  );
 }
 
 /**

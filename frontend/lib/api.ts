@@ -133,8 +133,20 @@ export const api = {
   regenerateAccessCode: (testId: string) =>
     request<{ accessCode: string }>(`/api/tests/${testId}/access-code/regenerate`, { method: "POST" }),
 
-  generateQuestions: (testId: string) =>
-    request<{ count: number; note: string }>(`/api/tests/${testId}/generate-questions`, { method: "POST" }),
+  generateQuestions: (testId: string, count?: number) =>
+    request<{ count: number; requested: number; remainingGenerations: number; note: string }>(
+      `/api/tests/${testId}/generate-questions`,
+      { method: "POST", body: JSON.stringify(count ? { count } : {}) }
+    ),
+
+  updateSettings: (
+    testId: string,
+    payload: { questionsPerStudent?: number | null; marksPerQuestion?: 1 | 2 }
+  ) =>
+    request<{ questionsPerStudent: number | null; marksPerQuestion: 1 | 2 }>(
+      `/api/tests/${testId}/settings`,
+      { method: "PATCH", body: JSON.stringify(payload) }
+    ),
 
   listQuestions: (testId: string) =>
     request<{
@@ -282,6 +294,8 @@ export const api = {
     | { state: "finished" }
     | {
         state: "not-started";
+        marksPerQuestion: number; 
+        totalMarks: number;
         title: string;
         instructions: string;
         durationMinutes: number;
@@ -295,6 +309,7 @@ export const api = {
       deadline: string;
       questions: { id: string; text: string; options: string[] }[];
       answers?: Record<string, number>; 
+      marksPerQuestion?: number;
     }>(`/api/attempts/${linkToken}/questions`),
 
   saveAnswer: (

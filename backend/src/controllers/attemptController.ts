@@ -5,7 +5,8 @@ import { Test } from "../models/Test";
 import { Question, toStudentSafeQuestion } from "../models/Question";
 import { Attempt } from "../models/Attempt";
 import { AuthedRequest } from "../middleware/auth";
-import { finalizeAttempt } from "../services/scoring";
+import { finalizeAttempt, totalMarksOf } from "../services/scoring";
+import { pickBalanced } from "../services/selection";
 import { upsertAnswerAtomic } from "../services/answers";
 
 function shuffle<T>(arr: T[]): T[] {
@@ -24,7 +25,7 @@ function shuffle<T>(arr: T[]): T[] {
 export async function getAttemptInfo(req: AuthedRequest, res: Response) {
   const { testId, id: studentId } = req.student!;
   const test = await Test.findById(testId).select(
-    "title instructions durationMinutes status loginWindowEnd"
+    "title instructions durationMinutes status loginWindowEnd questionsPerStudent marksPerQuestion"
   );
   if (!test || test.status !== "published") {
     return res.status(404).json({ error: "Test not available" });
@@ -43,7 +44,11 @@ export async function getAttemptInfo(req: AuthedRequest, res: Response) {
     return res.status(403).json({ error: "Login window has closed" });
   }
 
-  const questionCount = await Question.countDocuments({ testId, approved: true });
+  const poolSize = await Question.countDocuments({ testId, approved: true });
+  const questionCount = test.questionsPerStudent
+    ? Math.min(test.questionsPerStudent, poolSize)
+    : poolSize;
+  const marksPerQuestion = test.marksPerQuestion ?? 1;
   const minutesLeftInWindow = Math.max(
     1,
     Math.ceil((test.loginWindowEnd.getTime() - now.getTime()) / 60000)
@@ -55,9 +60,10 @@ export async function getAttemptInfo(req: AuthedRequest, res: Response) {
     title: test.title,
     instructions: test.instructions ?? "",
     durationMinutes: test.durationMinutes,
-    // The deadline is capped by the login window, so show what the student will really get.
     minutesAvailable: Math.min(test.durationMinutes, minutesLeftInWindow),
     questionCount,
+    marksPerQuestion,
+    totalMarks: questionCount * marksPerQuestion,
   });
 }
 
@@ -83,14 +89,19 @@ export async function getOrCreateAttempt(req: AuthedRequest, res: Response) {
     return res.json({ attemptId: existing._id, deadline: existing.deadline, status: existing.status });
   }
 
-  const questions = await Question.find({ testId, approved: true }).select("_id options");
-  if (questions.length === 0) return res.status(500).json({ error: "Test has no approved questions" });
+  const pool = await Question.find({ testId, approved: true }).select("_id options topic");
+  if (pool.length === 0) return res.status(500).json({ error: "Test has no approved questions" });
 
-  const questionOrder = shuffle(questions.map((q) => q._id));
+  // A smaller "questions per student" gives each student their own topic-balanced random subset.
+  const perStudent = test.questionsPerStudent;
+  const chosen = perStudent && perStudent < pool.length ? pickBalanced(pool, perStudent) : pool;
+
+  const questionOrder = shuffle(chosen.map((q) => q._id));
   const optionOrder: Record<string, number[]> = {};
-  for (const q of questions) {
+  for (const q of chosen) {
     optionOrder[q._id.toString()] = shuffle(q.options.map((_, i) => i));
   }
+  const marksPerQuestion = test.marksPerQuestion ?? 1;
 
   const deadline = new Date(
     Math.min(now.getTime() + test.durationMinutes * 60 * 1000, test.loginWindowEnd.getTime())
@@ -111,6 +122,8 @@ export async function getOrCreateAttempt(req: AuthedRequest, res: Response) {
           deadline,
           wasShortened,
           visibilityEvents: [],
+          marksPerQuestion,
+          totalMarks: questionOrder.length * marksPerQuestion,
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -186,7 +199,12 @@ export async function getQuestions(req: AuthedRequest, res: Response) {
   );
 
   res.setHeader("Cache-Control", "no-store");
-  return res.json({ deadline: attempt.deadline, questions: ordered, answers: savedAnswers });
+  return res.json({
+    deadline: attempt.deadline,
+    questions: ordered,
+    answers: savedAnswers,
+    marksPerQuestion: attempt.marksPerQuestion ?? 1,
+  });
 }
 
 const heartbeatSchema = z.object({
@@ -288,7 +306,7 @@ export async function submitAttempt(req: AuthedRequest, res: Response) {
   const attempt = await requireActiveAttempt(testId, studentId, res);
   if (!attempt) return;
 
-  const total = attempt.shuffleMap.questionOrder.length;
+  const total = totalMarksOf(attempt);
 
   if (await finalizeIfPastDeadline(attempt)) {
     return res.json({ status: "auto-submitted", score: attempt.score, total });
@@ -317,6 +335,6 @@ export async function getResult(req: AuthedRequest, res: Response) {
   return res.json({
     status: attempt.status,
     score: attempt.score ?? null,
-    total: attempt.shuffleMap.questionOrder.length,
+    total: totalMarksOf(attempt),
   });
 }

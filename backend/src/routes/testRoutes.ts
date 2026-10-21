@@ -17,6 +17,7 @@ import {
   liveResults,
   exportResults,
   deleteTest,
+  updateSettings,
 } from "../controllers/testController";
 import { aiGenerationLimiter } from "../middleware/rateLimit";
 
@@ -41,6 +42,7 @@ router.post("/:id/link", h(generateLink));
 router.post("/:id/access-code/regenerate", h(regenerateAccessCode));
 router.get("/:id/results", h(liveResults));
 router.get("/:id/export", h(exportResults));
+router.patch("/:id/settings", h(updateSettings));
 router.delete("/:id", h(deleteTest));
 
 export default router;
