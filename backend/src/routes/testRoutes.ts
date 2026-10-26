@@ -7,6 +7,7 @@ import {
   createTest,
   listMyTests,
   uploadRoster,
+  uploadQuestions,
   generateQuestions,
   listQuestions,
   addManualQuestion,
@@ -24,6 +25,7 @@ import {
 import { aiGenerationLimiter } from "../middleware/rateLimit";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
+const questionUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 } });
 const router = Router();
 
 router.use(requireLecturer);
@@ -36,6 +38,7 @@ router.get("/", h(listMyTests));
 router.post("/", h(createTest));
 router.post("/:id/roster", upload.single("roster"), h(uploadRoster));
 router.post("/:id/generate-questions", h(generateQuestions));
+router.post("/:id/questions/upload", questionUpload.single("questions"), h(uploadQuestions));
 router.get("/:id/questions", h(listQuestions));
 router.post("/:id/questions/manual", aiGenerationLimiter, h(addManualQuestion));
 router.post("/:id/questions/bulk", h(bulkQuestions));

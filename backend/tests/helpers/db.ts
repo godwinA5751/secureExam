@@ -7,7 +7,11 @@ export const MONGO_VERSION = "7.0.14";
 let server: MongoMemoryServer | undefined;
 
 export async function startDb() {
-  server = await MongoMemoryServer.create({ binary: { version: MONGO_VERSION } });
+  server = await MongoMemoryServer.create({
+    binary: { version: MONGO_VERSION },
+    // Slow machines, or several test files starting at once, can take longer than the 10s default.
+    instance: { launchTimeout: 60_000 },
+  });
   await mongoose.connect(server.getUri(), { dbName: "secureexam_test" });
   // Make sure unique and partial indexes exist before any test runs.
   await Promise.all(Object.values(mongoose.models).map((m) => m.init()));

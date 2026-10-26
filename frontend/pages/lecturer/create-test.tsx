@@ -15,6 +15,22 @@ type QuestionRow = {
   approved: boolean;
 };
 
+const TEMPLATE_CSV =
+  "question,A,B,C,D,correct,topic\r\n" +
+  "What does HTTP stand for?,HyperText Transfer Protocol,High Transfer Text Protocol,Hyper Transfer Text Process,Host Transfer Type Protocol,A,Networking\r\n" +
+  "Which of these is a relational database?,MongoDB,PostgreSQL,Redis,Neo4j,B,Databases\r\n";
+
+function downloadTemplate() {
+  // The BOM at the start makes Excel open the file as UTF-8.
+  const blob = new Blob(["\uFEFF" + TEMPLATE_CSV], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "questions-template.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function CreateTest() {
   const router = useRouter();
   const [title, setTitle] = useState("");
@@ -67,6 +83,11 @@ export default function CreateTest() {
   const [aiNote, setAiNote] = useState<string | null>(null);
   const [perStudent, setPerStudent] = useState(""); // "" = every student gets every question
   const [marks, setMarks] = useState<1 | 2>(1);
+
+  const [uploadTopic, setUploadTopic] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const [uploadIssues, setUploadIssues] = useState<string[]>([]);
 
   const aiMessages = useMemo(() => {
     const topicList = topics.split(",").map((s) => s.trim()).filter(Boolean)
@@ -150,6 +171,42 @@ export default function CreateTest() {
       invalidateTests();
     } catch (err: any) {
       setError(err.message);
+    }
+  }
+
+  async function handleUploadQuestions(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // lets the same file be chosen again after fixing it
+    if (!testId || !file) return;
+
+    setError(null);
+    setUploadMsg(null);
+    setUploadIssues([]);
+    setUploading(true);
+    try {
+      const r = await api.uploadQuestions(testId, file, uploadTopic.trim());
+      setUploadMsg(
+        `${r.acceptedCount} question${r.acceptedCount === 1 ? "" : "s"} added for review, ${r.rejectedCount} row${
+          r.rejectedCount === 1 ? "" : "s"
+        } skipped.`
+      );
+      setUploadIssues(r.rejectedReasons);
+
+      // Show the new (pending) questions straight away.
+      const alreadyThere = qStatus === "pending" && qPage === 1 && !qTopicFilter && !qSearch;
+      if (alreadyThere) {
+        await refreshQuestions(testId);
+      } else {
+        changeFilter(() => {
+          setQStatus("pending");
+          setQTopicFilter("");
+          setQSearch("");
+        });
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -460,6 +517,48 @@ export default function CreateTest() {
               </button>
 
               {aiNote && <p className="mb-3 text-xs text-amber-700">{aiNote}</p>}
+
+              <div className="rounded-xl border border-slate-200 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium text-slate-800">Upload questions from a file</h3>
+                  <button
+                    type="button"
+                    onClick={downloadTemplate}
+                    className="text-xs font-medium text-violet-600 hover:underline"
+                  >
+                    Download template
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  CSV with a header row: question, A, B, C, D (up to F), correct (a letter), and an optional topic.
+                  Uploaded questions wait for your review. In Excel use Save As, then &quot;CSV UTF-8&quot;.
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    value={uploadTopic}
+                    onChange={(e) => setUploadTopic(e.target.value)}
+                    placeholder="Topic for rows without one (default: first topic)"
+                    className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
+                  />
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    disabled={uploading}
+                    onChange={handleUploadQuestions}
+                    className="text-xs"
+                  />
+                </div>
+                {uploading && <p className="mt-2 text-xs text-slate-500">Uploading…</p>}
+                {uploadMsg && <p className="mt-2 text-xs text-slate-700">{uploadMsg}</p>}
+                {uploadIssues.length > 0 && (
+                  <ul className="mt-1 list-disc pl-5 text-xs text-amber-700">
+                    {uploadIssues.slice(0, 10).map((issue, i) => (
+                      <li key={i}>{issue}</li>
+                    ))}
+                    {uploadIssues.length > 10 && <li>…and {uploadIssues.length - 10} more</li>}
+                  </ul>
+                )}
+              </div>
 
               <form onSubmit={handleAddManual} className="space-y-2 mb-4 bg-slate-50 rounded-lg p-4">
                 <p className="text-xs font-medium text-slate-600 mb-1">Add a question manually</p>

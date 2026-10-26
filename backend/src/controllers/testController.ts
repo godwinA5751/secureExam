@@ -13,6 +13,7 @@ import { Types } from "mongoose";
 import { User } from "../models/User";
 import { parsePaging } from "../utils/paging";
 import { totalMarksOf } from "../services/scoring";
+import { parseQuestionsCsv, duplicateKey } from "../services/questionCsvService";
 
 const createTestSchema = z.object({
   title: z.string().min(3).max(200),
@@ -117,6 +118,52 @@ export async function uploadRoster(req: AuthedRequest & { file?: Express.Multer.
     ignoredNameCount: result.ignoredNameCount,
     nameWarnings: result.nameWarnings,
     totalRosterSize: test.allowedStudents.length,
+  });
+}
+
+export async function uploadQuestions(
+  req: AuthedRequest & { file?: Express.Multer.File },
+  res: Response
+) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+  if (rejectIfPublished(test, res)) return;
+  if (!req.file) return res.status(400).json({ error: "CSV file required" });
+
+  const requested = String(req.body?.defaultTopic ?? "").trim().slice(0, 100);
+  const defaultTopic = requested || test.topics[0] || "General";
+
+  const existing = await Question.find({ testId: test._id }).select("text").lean();
+  const existingTexts = new Set(existing.map((q) => duplicateKey(q.text)));
+
+  let result;
+  try {
+    result = parseQuestionsCsv(req.file.buffer, req.file.mimetype, {
+      defaultTopic,
+      testTopics: test.topics,
+      existingTexts,
+    });
+  } catch (e: any) {
+    return res.status(400).json({ error: e.message });
+  }
+
+  if (existing.length + result.questions.length > MAX_QUESTIONS_PER_TEST) {
+    return res.status(400).json({
+      error: `This file would take the test over ${MAX_QUESTIONS_PER_TEST} questions (it has ${existing.length}, the file adds ${result.questions.length}).`,
+    });
+  }
+
+  // Uploaded questions wait for review, like AI-generated ones.
+  if (result.questions.length > 0) {
+    await Question.insertMany(
+      result.questions.map((q) => ({ ...q, testId: test._id, approved: false }))
+    );
+  }
+
+  return res.json({
+    acceptedCount: result.questions.length,
+    rejectedCount: result.rejectedCount,
+    rejectedReasons: result.rejectedReasons,
   });
 }
 

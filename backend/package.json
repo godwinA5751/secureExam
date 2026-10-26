@@ -7,7 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc -p .",
     "start": "node dist/server.js",
-    "test": "vitest run"
+    "test": "vitest run --no-file-parallelism"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

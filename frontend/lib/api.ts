@@ -104,6 +104,22 @@ export const api = {
     };
   },
 
+  uploadQuestions: async (testId: string, file: File, defaultTopic: string) => {
+    const form = new FormData();
+    form.append("defaultTopic", defaultTopic);
+    form.append("questions", file);
+
+    const res = await fetch(`${API_BASE}/api/tests/${testId}/questions/upload`, {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? "Upload failed");
+    return body as { acceptedCount: number; rejectedCount: number; rejectedReasons: string[] };
+  },
+
   getMe: () =>
   request<{ id: string; name: string; email: string; createdAt: string }>("/api/auth/lecturer/me"),
 
