@@ -200,6 +200,7 @@ function rejectIfPublished(test: { status: string }, res: Response): boolean {
 
 const MAX_AI_GENERATIONS_PER_TEST = Number(process.env.AI_GENERATIONS_PER_TEST ?? 3);
 const MAX_QUESTIONS_PER_RUN = Number(process.env.AI_MAX_QUESTIONS_PER_RUN ?? 40);
+const MAX_QUESTIONS_PER_TEST = Number(process.env.MAX_QUESTIONS_PER_TEST ?? 500);
 const generateSchema = z.object({
   count: z.number().int().min(1).max(MAX_QUESTIONS_PER_RUN).optional(),
 });
@@ -216,6 +217,13 @@ export async function generateQuestions(req: AuthedRequest, res: Response) {
       .json({ error: `Choose between 1 and ${MAX_QUESTIONS_PER_RUN} questions to generate` });
   }
   const count = parsed.data.count ?? Math.min(MAX_QUESTIONS_PER_RUN, test.topics.length * 5);
+
+  const existing = await Question.countDocuments({ testId: test._id });
+  if (existing + count > MAX_QUESTIONS_PER_TEST) {
+    return res.status(400).json({
+      error: `A test can have at most ${MAX_QUESTIONS_PER_TEST} questions (this one has ${existing}).`,
+    });
+  }
 
   // Reserve one run atomically. This also stops a double-click from running two at once
   // past the cap. Tests created before this field existed count as 0 runs used.
@@ -266,14 +274,36 @@ export async function generateQuestions(req: AuthedRequest, res: Response) {
 export async function listQuestions(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
+  const { page, pageSize, skip } = parsePaging(req.query, 20, 100);
 
   // Lecturer is the author/reviewer, so the answer key IS shown here (+correctOptionIndex).
-  const questions = await Question.find({ testId: test._id })
+  // A test holds at most a few hundred questions, so filtering in memory is simple and safe
+  // (no regex is ever built from user input).
+  const all = await Question.find({ testId: test._id })
     .select("+correctOptionIndex")
-    .sort({ _id: 1 });
+    .sort({ _id: 1 })
+    .lean();
+
+  const topicCounts = new Map<string, number>();
+  let approved = 0;
+  for (const q of all) {
+    if (q.approved) approved += 1;
+    topicCounts.set(q.topic, (topicCounts.get(q.topic) ?? 0) + 1);
+  }
+
+  const status = String(req.query.status ?? "all");
+  const topic = String(req.query.topic ?? "");
+  const needle = String(req.query.q ?? "").trim().toLowerCase().slice(0, 100);
+
+  const filtered = all.filter(
+    (q) =>
+      (status === "approved" ? q.approved : status === "pending" ? !q.approved : true) &&
+      (!topic || q.topic === topic) &&
+      (!needle || q.text.toLowerCase().includes(needle))
+  );
 
   return res.json({
-    questions: questions.map((q) => ({
+    questions: filtered.slice(skip, skip + pageSize).map((q) => ({
       id: q._id,
       text: q.text,
       options: q.options,
@@ -281,6 +311,19 @@ export async function listQuestions(req: AuthedRequest, res: Response) {
       topic: q.topic,
       approved: q.approved,
     })),
+    page,
+    pageSize,
+    total: filtered.length,
+    totalPages: Math.max(1, Math.ceil(filtered.length / pageSize)),
+    // Counts for the WHOLE test, whatever the filters say.
+    summary: {
+      total: all.length,
+      approved,
+      pending: all.length - approved,
+      topics: [...topicCounts]
+        .map(([name, count]) => ({ topic: name, count }))
+        .sort((a, b) => a.topic.localeCompare(b.topic)),
+    },
   });
 }
 
@@ -299,6 +342,10 @@ export async function addManualQuestion(req: AuthedRequest, res: Response) {
   const parsed = manualQuestionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const data = parsed.data;
+
+  if ((await Question.countDocuments({ testId: test._id })) >= MAX_QUESTIONS_PER_TEST) {
+    return res.status(400).json({ error: `A test can have at most ${MAX_QUESTIONS_PER_TEST} questions` });
+  }
 
   if (data.correctOptionIndex >= data.options.length) {
     return res.status(400).json({ error: "correctOptionIndex is out of range for the given options" });
@@ -386,6 +433,48 @@ export async function updateQuestion(req: AuthedRequest, res: Response) {
       approved: question.approved,
     },
   });
+}
+
+export async function deleteQuestion(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+  if (rejectIfPublished(test, res)) return;
+
+  const result = await Question.deleteOne({ _id: req.params.questionId, testId: test._id });
+  if (result.deletedCount === 0) return res.status(404).json({ error: "Question not found" });
+  return res.json({ ok: true });
+}
+
+const bulkSchema = z
+  .object({
+    action: z.enum(["approve", "delete"]),
+    ids: z.array(z.string().regex(/^[a-f\d]{24}$/i)).min(1).max(500).optional(),
+    all: z.literal("pending").optional(), // every not-yet-approved question in this test
+  })
+  .refine((v) => (v.ids !== undefined) !== (v.all !== undefined), {
+    message: "Provide either ids or all",
+  });
+
+export async function bulkQuestions(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+  if (rejectIfPublished(test, res)) return;
+
+  const parsed = bulkSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
+  const { action, ids, all } = parsed.data;
+
+  // Always scoped to this test, so ids from another test can never be touched.
+  const filter = all
+    ? { testId: test._id, approved: false }
+    : { testId: test._id, _id: { $in: ids ?? [] } };
+
+  if (action === "approve") {
+    const result = await Question.updateMany(filter, { $set: { approved: true } });
+    return res.json({ affected: result.modifiedCount });
+  }
+  const result = await Question.deleteMany(filter);
+  return res.json({ affected: result.deletedCount });
 }
 
 export async function deleteTest(req: AuthedRequest, res: Response) {

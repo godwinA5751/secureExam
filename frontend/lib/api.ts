@@ -148,7 +148,10 @@ export const api = {
       { method: "PATCH", body: JSON.stringify(payload) }
     ),
 
-  listQuestions: (testId: string) =>
+  listQuestions: (
+    testId: string,
+    query: { page?: number; pageSize?: number; status?: string; topic?: string; q?: string } = {}
+  ) =>
     request<{
       questions: {
         id: string;
@@ -158,7 +161,35 @@ export const api = {
         topic: string;
         approved: boolean;
       }[];
-    }>(`/api/tests/${testId}/questions`),
+      page: number;
+      pageSize: number;
+      total: number;
+      totalPages: number;
+      summary: {
+        total: number;
+        approved: number;
+        pending: number;
+        topics: { topic: string; count: number }[];
+      };
+    }>(
+      `/api/tests/${testId}/questions?${new URLSearchParams(
+        Object.entries(query)
+          .filter(([, v]) => v !== undefined && v !== "")
+          .map(([k, v]) => [k, String(v)])
+      )}`
+    ),
+
+  deleteQuestion: (testId: string, questionId: string) =>
+    request<{ ok: boolean }>(`/api/tests/${testId}/questions/${questionId}`, { method: "DELETE" }),
+
+  bulkQuestions: (
+    testId: string,
+    body: { action: "approve" | "delete"; ids?: string[]; all?: "pending" }
+  ) =>
+    request<{ affected: number }>(`/api/tests/${testId}/questions/bulk`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   updateQuestion: (
     testId: string,

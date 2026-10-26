@@ -3,7 +3,8 @@ import { useRouter } from "next/router";
 import { api } from "../../lib/api";
 import { Skeleton } from "../../components/Skeleton";
 import { useProgressMessage } from "../../lib/useProgressMessage";
-import {invalidateTests} from "../../lib/hooks";
+import { invalidateTests, useDebounced } from "../../lib/hooks";
+import Pagination from "../../components/Pagination";
 
 type QuestionRow = {
   id: string;
@@ -30,6 +31,21 @@ export default function CreateTest() {
   const [published, setPublished] = useState(false);
 
   const [questions, setQuestions] = useState<QuestionRow[]>([]);
+  const Q_PAGE_SIZE = 20;
+  const [qSummary, setQSummary] = useState({
+    total: 0,
+    approved: 0,
+    pending: 0,
+    topics: [] as { topic: string; count: number }[],
+  });
+  const [qPage, setQPage] = useState(1);
+  const [qTotal, setQTotal] = useState(0); // questions matching the current filters
+  const [qTotalPages, setQTotalPages] = useState(1);
+  const [qStatus, setQStatus] = useState<"all" | "approved" | "pending">("all");
+  const [qTopicFilter, setQTopicFilter] = useState("");
+  const [qSearch, setQSearch] = useState("");
+  const debouncedQSearch = useDebounced(qSearch.trim(), 300);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [aiLoading, setAiLoading] = useState(false);
   const [qText, setQText] = useState("");
   const [qOptions, setQOptions] = useState(["", "", "", ""]);
@@ -75,14 +91,24 @@ export default function CreateTest() {
   }, [error]);
 
   async function refreshQuestions(id: string) {
-    const { questions } = await api.listQuestions(id);
-    setQuestions(questions);
+    const res = await api.listQuestions(id, {
+      page: qPage,
+      pageSize: Q_PAGE_SIZE,
+      status: qStatus,
+      topic: qTopicFilter,
+      q: debouncedQSearch,
+    });
+    setQuestions(res.questions);
+    setQSummary(res.summary);
+    setQTotal(res.total);
+    setQTotalPages(res.totalPages);
+    if (res.page > res.totalPages) setQPage(res.totalPages); // e.g. after deleting the last item on a page
   }
 
   useEffect(() => {
     if (testId) refreshQuestions(testId).catch((err) => setError(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testId]);
+  }, [testId, qPage, qStatus, qTopicFilter, debouncedQSearch]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -231,12 +257,60 @@ export default function CreateTest() {
     }
   }
 
-  async function handleApproveAll() {
-    if (!testId) return;
-    const unapprovedIds = questions.filter((q) => !q.approved).map((q) => q.id);
-    if (unapprovedIds.length === 0) return;
+  function changeFilter(apply: () => void) {
+    apply();
+    setQPage(1);
+    setSelected(new Set()); // never act on rows the lecturer can no longer see
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectPage() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = questions.every((q) => next.has(q.id));
+      questions.forEach((q) => (allSelected ? next.delete(q.id) : next.add(q.id)));
+      return next;
+    });
+  }
+
+  async function handleDeleteQuestion(id: string) {
+    if (!testId || !window.confirm("Delete this question? This cannot be undone.")) return;
+    setError(null);
     try {
-      await api.approveQuestions(testId, unapprovedIds);
+      await api.deleteQuestion(testId, id);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      await refreshQuestions(testId);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  // scope "pending" acts on EVERY unapproved question in the test; otherwise on the selected rows.
+  async function handleBulk(action: "approve" | "delete", scope?: "pending") {
+    if (!testId) return;
+    const ids = [...selected];
+    if (!scope && ids.length === 0) return;
+    if (action === "delete") {
+      const message = scope
+        ? `Delete all ${unapprovedCount} pending questions? This cannot be undone.`
+        : `Delete ${ids.length} selected question(s)? This cannot be undone.`;
+      if (!window.confirm(message)) return;
+    }
+    setError(null);
+    try {
+      await api.bulkQuestions(testId, scope ? { action, all: scope } : { action, ids });
+      setSelected(new Set());
       await refreshQuestions(testId);
     } catch (err: any) {
       setError(err.message);
@@ -262,8 +336,9 @@ export default function CreateTest() {
     }
   }
 
-  const approvedCount = questions.filter((q) => q.approved).length;
-  const unapprovedCount = questions.length - approvedCount;
+  const approvedCount = qSummary.approved;
+  const unapprovedCount = qSummary.pending;
+  const allOnPageSelected = questions.length > 0 && questions.every((q) => selected.has(q.id));
 
   const perStudentNum = perStudent === "" ? null : Number(perStudent);
   const examSize = perStudentNum ? Math.min(perStudentNum, approvedCount) : approvedCount;
@@ -418,19 +493,85 @@ export default function CreateTest() {
                 </button>
               </form>
 
-              {questions.length > 0 && (
+              {qSummary.total > 0 && (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-slate-500">
-                      {aiLoading
-                        ? "New questions will appear below"
-                        : `${approvedCount} approved, ${unapprovedCount} pending review`}
-                    </p>
-                    {!aiLoading && unapprovedCount > 0 && (
-                      <button onClick={handleApproveAll} className="text-xs font-medium text-emerald-700 underline">
-                        Approve all pending
-                      </button>
-                    )}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">
+                        {aiLoading
+                          ? "New questions will appear below"
+                          : `${approvedCount} approved, ${unapprovedCount} pending review (${qSummary.total} total)`}
+                      </p>
+                      {!aiLoading && unapprovedCount > 0 && (
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleBulk("approve", "pending")}
+                            className="text-xs font-medium text-emerald-700 underline"
+                          >
+                            Approve all pending
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBulk("delete", "pending")}
+                            className="text-xs font-medium text-red-600 underline"
+                          >
+                            Delete all pending
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        value={qSearch}
+                        onChange={(e) => changeFilter(() => setQSearch(e.target.value))}
+                        placeholder="Search questions..."
+                        className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
+                      />
+                      <select
+                        value={qStatus}
+                        onChange={(e) => changeFilter(() => setQStatus(e.target.value as typeof qStatus))}
+                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                      >
+                        <option value="all">All</option>
+                        <option value="approved">Approved</option>
+                        <option value="pending">Pending</option>
+                      </select>
+                      <select
+                        value={qTopicFilter}
+                        onChange={(e) => changeFilter(() => setQTopicFilter(e.target.value))}
+                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                      >
+                        <option value="">All topics</option>
+                        {qSummary.topics.map((t) => (
+                          <option key={t.topic} value={t.topic}>
+                            {t.topic} ({t.count})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                      <label className="flex items-center gap-1.5 text-slate-600">
+                        <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectPage} />
+                        Select this page
+                      </label>
+                      {selected.size > 0 && (
+                        <>
+                          <span className="text-slate-400">{selected.size} selected</span>
+                          <button type="button" onClick={() => handleBulk("approve")} className="font-medium text-emerald-700 hover:underline">
+                            Approve selected
+                          </button>
+                          <button type="button" onClick={() => handleBulk("delete")} className="font-medium text-red-600 hover:underline">
+                            Delete selected
+                          </button>
+                          <button type="button" onClick={() => setSelected(new Set())} className="text-slate-500 hover:underline">
+                            Clear
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <ul className="divide-y divide-slate-200 border border-slate-200 rounded-lg">
                     {questions.map((q) => (
@@ -519,7 +660,16 @@ export default function CreateTest() {
                         ) : (
                           <>
                             <div className="flex items-start justify-between gap-2">
-                              <p className="text-slate-800">{q.text}</p>
+                              <label className="flex items-start gap-2 text-slate-800">
+                                <input
+                                  type="checkbox"
+                                  checked={selected.has(q.id)}
+                                  onChange={() => toggleSelect(q.id)}
+                                  className="mt-1"
+                                  aria-label="Select question"
+                                />
+                                <span>{q.text}</span>
+                              </label>
 
                               <span
                                 className={`text-xs shrink-0 rounded-full px-2 py-0.5 ${
@@ -555,6 +705,13 @@ export default function CreateTest() {
                               >
                                 Edit
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteQuestion(q.id)}
+                                className="text-xs font-medium text-red-600 hover:underline"
+                              >
+                                Delete
+                              </button>
                             </div>
                           </>
                         )}
@@ -562,6 +719,16 @@ export default function CreateTest() {
                     ))}
                     {aiLoading && <QuestionSkeletonRows count={4} />}
                   </ul>
+                  {!aiLoading && questions.length === 0 && (
+                    <p className="py-3 text-center text-xs text-slate-400">No questions match your filters.</p>
+                  )}
+                  <Pagination
+                    page={qPage}
+                    totalPages={qTotalPages}
+                    total={qTotal}
+                    pageSize={Q_PAGE_SIZE}
+                    onPageChange={setQPage}
+                  />
                 </div>
               )}
             </div>

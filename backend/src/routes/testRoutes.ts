@@ -18,6 +18,8 @@ import {
   exportResults,
   deleteTest,
   updateSettings,
+  bulkQuestions,
+  deleteQuestion
 } from "../controllers/testController";
 import { aiGenerationLimiter } from "../middleware/rateLimit";
 
@@ -36,6 +38,7 @@ router.post("/:id/roster", upload.single("roster"), h(uploadRoster));
 router.post("/:id/generate-questions", h(generateQuestions));
 router.get("/:id/questions", h(listQuestions));
 router.post("/:id/questions/manual", aiGenerationLimiter, h(addManualQuestion));
+router.post("/:id/questions/bulk", h(bulkQuestions));
 router.patch("/:id/questions/:questionId", h(updateQuestion));
 router.patch("/:id/questions", h(reviewQuestions));
 router.post("/:id/link", h(generateLink));
@@ -43,6 +46,7 @@ router.post("/:id/access-code/regenerate", h(regenerateAccessCode));
 router.get("/:id/results", h(liveResults));
 router.get("/:id/export", h(exportResults));
 router.patch("/:id/settings", h(updateSettings));
+router.delete("/:id/questions/:questionId", h(deleteQuestion));
 router.delete("/:id", h(deleteTest));
 
 export default router;
