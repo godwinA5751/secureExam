@@ -207,33 +207,164 @@ export async function getQuestions(req: AuthedRequest, res: Response) {
   });
 }
 
+
 const heartbeatSchema = z.object({
-  visibility: z.enum(["blur", "hidden", "focus", "visible"]).optional(),
+  visibility: z.enum(["hidden", "focus", "visible"]).optional(),
 });
+
+const FOCUS_LOSS_LIMIT = 2;
 
 export async function heartbeat(req: AuthedRequest, res: Response) {
   const { testId, id: studentId } = req.student!;
+
   const attempt = await requireActiveAttempt(testId, studentId, res);
   if (!attempt) return;
 
   const parsed = heartbeatSchema.safeParse(req.body ?? {});
-  if (parsed.success && parsed.data.visibility) {
-    await Attempt.updateOne(
-      { _id: attempt._id, status: "in-progress" },
-      { $push: { visibilityEvents: { type: parsed.data.visibility, at: new Date() } } }
-    );
 
-    // Tab-visibility anti-cheat: immediate auto-submit on blur/hidden.
-    if (parsed.data.visibility === "blur" || parsed.data.visibility === "hidden") {
-      await scoreAndSubmit(attempt, "auto-submitted");
-      return res.json({ status: attempt.status, reason: "tab-visibility-violation" });
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid heartbeat event",
+    });
+  }
+
+  const visibility = parsed.data.visibility;
+
+  if (!visibility) {
+    if (await finalizeIfPastDeadline(attempt)) {
+      return res.json({
+        status: "auto-submitted",
+        reason: "deadline",
+      });
     }
+
+    return res.json({
+      status: "in-progress",
+      deadline: attempt.deadline,
+      focusLossCount: attempt.focusLossCount ?? 0,
+      violationLimit: FOCUS_LOSS_LIMIT,
+    });
   }
 
-  if (await finalizeIfPastDeadline(attempt)) {
-    return res.json({ status: "auto-submitted", reason: "deadline" });
+  const event = {
+    type: visibility,
+    at: new Date(),
+  };
+
+  // Atomically record the event and count only transitions into hidden.
+  await Attempt.updateOne(
+    {
+      _id: attempt._id,
+      status: "in-progress",
+    },
+    [
+      {
+        $set: {
+          visibilityEvents: {
+            $concatArrays: [
+              { $ifNull: ["$visibilityEvents", []] },
+              [{ $literal: event }],
+            ],
+          },
+
+          focusLossCount: {
+            $cond: [
+              {
+                $and: [
+                  {
+                    $eq: [
+                      { $literal: visibility },
+                      "hidden",
+                    ],
+                  },
+                  {
+                    $ne: [
+                      { $ifNull: ["$isDocumentHidden", false] },
+                      true,
+                    ],
+                  },
+                ],
+              },
+              {
+                $add: [
+                  { $ifNull: ["$focusLossCount", 0] },
+                  1,
+                ],
+              },
+              { $ifNull: ["$focusLossCount", 0] },
+            ],
+          },
+
+          isDocumentHidden: {
+            $cond: [
+              {
+                $eq: [
+                  { $literal: visibility },
+                  "hidden",
+                ],
+              },
+              true,
+              {
+                $cond: [
+                  {
+                    $eq: [
+                      { $literal: visibility },
+                      "visible",
+                    ],
+                  },
+                  false,
+                  { $ifNull: ["$isDocumentHidden", false] },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ]
+  );
+
+  // Read the authoritative state after the atomic update.
+  const updated = await Attempt.findById(attempt._id).select(
+    "status deadline focusLossCount"
+  );
+
+  if (!updated || updated.status !== "in-progress") {
+    return res.json({
+      status: updated?.status ?? "auto-submitted",
+      reason: "already-finalized",
+    });
   }
-  return res.json({ status: "in-progress", deadline: attempt.deadline });
+
+  if (
+    visibility === "hidden" &&
+    (updated.focusLossCount ?? 0) >= FOCUS_LOSS_LIMIT
+  ) {
+    await scoreAndSubmit(updated, "auto-submitted");
+
+    return res.json({
+      status: updated.status,
+      reason: "focus-loss",
+      focusLossCount: updated.focusLossCount,
+      violationLimit: FOCUS_LOSS_LIMIT,
+    });
+  }
+
+  if (await finalizeIfPastDeadline(updated)) {
+    return res.json({
+      status: "auto-submitted",
+      reason: "deadline",
+      focusLossCount: updated.focusLossCount ?? 0,
+      violationLimit: FOCUS_LOSS_LIMIT,
+    });
+  }
+
+  return res.json({
+    status: "in-progress",
+    deadline: updated.deadline,
+    focusLossCount: updated.focusLossCount ?? 0,
+    violationLimit: FOCUS_LOSS_LIMIT,
+    warning: (updated.focusLossCount ?? 0) === 1,
+  });
 }
 
 const answerSchema = z.object({

@@ -372,14 +372,23 @@ export const api = {
       }
     ),
 
-  heartbeat: (linkToken: string, visibility?: string) =>
-    request<{ status: string; reason?: string }>(
-      `/api/attempts/${linkToken}/heartbeat`,
-      {
-        method: "POST",
-        body: JSON.stringify({ visibility }),
-      }
-    ),
+  heartbeat: (
+    linkToken: string,
+    visibility?: "hidden" | "focus" | "visible"
+  ) =>
+    request<{
+      status: string;
+      reason?: string;
+      deadline?: string;
+      focusLossCount?: number;
+      violationLimit?: number;
+      warning?: boolean;
+    }>(`/api/attempts/${linkToken}/heartbeat`, {
+      method: "POST",
+      body: JSON.stringify(
+        visibility ? { visibility } : {}
+      ),
+    }),
 
   submit: (linkToken: string) =>
     request<{ status: string; score: number | null; total: number }>(

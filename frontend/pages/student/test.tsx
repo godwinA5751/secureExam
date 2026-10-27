@@ -22,8 +22,8 @@ const ENDED_COPY: Record<EndReason, { title: string; body?: string }> = {
   submitted: { title: "Attempt submitted", body: "Your answers have been recorded." },
   "time-up": { title: "Time is up", body: "Your answers were submitted automatically." },
   violation: {
-    title: "Test ended",
-    body: "Your attempt was submitted automatically because this window lost focus.",
+    title: "Test submitted automatically",
+    body: "Your attempt was submitted after the exam tab was hidden twice.",
   },
   "already-submitted": {
     title: "Attempt closed",
@@ -55,6 +55,7 @@ export default function StudentTest() {
   const [unsavedCount, setUnsavedCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [focusLossCount, setFocusLossCount] = useState(0);
   const submittedRef = useRef(false);
   const zeroFiredRef = useRef(false);
   const [current, setCurrent] = useState(0); // index of the question on screen
@@ -217,10 +218,21 @@ export default function StudentTest() {
 
       try {
         const hb = await api.heartbeat(linkToken);
-        if (hb.status !== "in-progress") {
-          endAttempt(hb.reason === "deadline" ? "time-up" : "ended");
+
+        if (typeof hb.focusLossCount === "number") {
+          setFocusLossCount(hb.focusLossCount);
         }
-      } catch (err: any) {
+
+        if (hb.status !== "in-progress") {
+          endAttempt(
+            hb.reason === "deadline"
+              ? "time-up"
+              : hb.reason === "focus-loss"
+                ? "violation"
+                : "ended"
+          );
+        }
+      }catch (err: any) {
         // The server already ended this attempt (sweep, deadline, blur): stop showing the exam.
         if (isAttemptOver(err)) endAttempt("ended");
         // Otherwise a network hiccup - the backend sweep is the safety net if this keeps failing.
@@ -232,34 +244,77 @@ export default function StudentTest() {
 
   // Tab-visibility anti-cheat: only active while the exam itself is on screen
   // (not on the briefing screen), so reading the instructions can't end the test.
+  
   useEffect(() => {
     if (status !== "in-progress" || !linkToken) return;
 
-    async function reportAndEnd(type: "blur" | "hidden") {
-      if (submittedRef.current) return;
-      submittedRef.current = true;
-      setEndReason("violation");
-      try {
-        await api.heartbeat(linkToken!, type);
-      } catch {
-        // The server sweep will still finalize the attempt at its deadline.
-      } finally {
-        setStatus("ended");
-      }
-    }
+    let reportChain = Promise.resolve();
 
-    const onBlur = () => reportAndEnd("blur");
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") reportAndEnd("hidden");
+    const reportVisibility = (
+      type: "hidden" | "focus" | "visible"
+    ) => {
+      // Keep events ordered so a quick return cannot overtake "hidden".
+      reportChain = reportChain
+        .then(async () => {
+          if (submittedRef.current) return;
+
+          try {
+            const hb = await api.heartbeat(linkToken, type);
+
+            if (typeof hb.focusLossCount === "number") {
+              setFocusLossCount(hb.focusLossCount);
+            }
+
+            if (hb.status !== "in-progress") {
+              endAttempt(
+                hb.reason === "focus-loss"
+                  ? "violation"
+                  : hb.reason === "deadline"
+                    ? "time-up"
+                    : "ended"
+              );
+            }
+          } catch (err: any) {
+            if (isAttemptOver(err)) {
+              endAttempt("ended");
+            }
+            // Temporary network errors do not themselves end the exam.
+          }
+        })
+        .catch(() => {
+          // Keep the event chain usable if an earlier event fails.
+        });
     };
 
-    window.addEventListener("blur", onBlur);
+    const onVisibility = () => {
+      reportVisibility(
+        document.visibilityState === "hidden"
+          ? "hidden"
+          : "visible"
+      );
+    };
+
+    const onFocus = () => {
+      reportVisibility("focus");
+    };
+
+    // Initialize visibility state without treating initial visibility
+    // as a violation when the page is already visible.
+    reportVisibility(
+      document.visibilityState === "hidden"
+        ? "hidden"
+        : "visible"
+    );
+
+    window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
-      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [status, linkToken]);
+
 
   function handleAnswer(questionId: string, index: number) {
     if (!linkToken) return;
@@ -425,6 +480,18 @@ export default function StudentTest() {
       </div>
       <div className="max-w-2xl mx-auto pt-20 pb-10">
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+        {focusLossCount === 1 && status === "in-progress" && (
+          <div
+            role="alert"
+            className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+          >
+            <p className="font-semibold">Warning: exam tab hidden</p>
+            <p>
+              This is your first incident. If you leave the exam tab and it
+              becomes hidden again, your test will be submitted automatically.
+            </p>
+          </div>
+        )}
 
         {questions[current] && (
           <section

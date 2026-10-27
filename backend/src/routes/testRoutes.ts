@@ -37,10 +37,10 @@ router.param("questionId", objectIdParam);
 router.get("/", h(listMyTests));
 router.post("/", h(createTest));
 router.post("/:id/roster", upload.single("roster"), h(uploadRoster));
-router.post("/:id/generate-questions", h(generateQuestions));
+router.post("/:id/generate-questions", aiGenerationLimiter, h(generateQuestions));
 router.post("/:id/questions/upload", questionUpload.single("questions"), h(uploadQuestions));
 router.get("/:id/questions", h(listQuestions));
-router.post("/:id/questions/manual", aiGenerationLimiter, h(addManualQuestion));
+router.post("/:id/questions/manual", h(addManualQuestion));
 router.post("/:id/questions/bulk", h(bulkQuestions));
 router.patch("/:id/questions/:questionId", h(updateQuestion));
 router.patch("/:id/questions", h(reviewQuestions));
@@ -52,4 +52,4 @@ router.patch("/:id/settings", h(updateSettings));
 router.delete("/:id/questions/:questionId", h(deleteQuestion));
 router.delete("/:id", h(deleteTest));
 
-export default router;
+export default router; 

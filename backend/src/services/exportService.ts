@@ -5,6 +5,7 @@ type ExportAttempt = {
   startedAt?: Date | null;
   submittedAt?: Date | null;
   visibilityEvents?: { type: string }[];
+  focusLossCount?: number;
   shuffleMap?: { questionOrder?: unknown[] };
   totalMarks?: number | null;
   marksPerQuestion?: number | null;
@@ -83,7 +84,10 @@ export function buildResultsCsv(test: ExportTest, attempts: ExportAttempt[]): st
       a.startedAt ? a.startedAt.toISOString() : "",
       a.startedAt && a.submittedAt ? round1((a.submittedAt.getTime() - a.startedAt.getTime()) / 60000) : "",
       endReasonOf(a),
-      (a.visibilityEvents ?? []).filter(isFocusLoss).length,
+      a.focusLossCount ??
+      (a.visibilityEvents ?? []).filter(
+        (event) => event.type === "blur" || event.type === "hidden"
+      ).length,
       test.title,
     ]);
   }

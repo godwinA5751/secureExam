@@ -27,6 +27,8 @@ export interface IAttempt extends Document {
   wasShortened: boolean;
   visibilityEvents: IVisibilityEvent[];
   submittedAt: Date | null;
+  focusLossCount: number;
+  isDocumentHidden: boolean;
 }
 
 const AttemptSchema = new Schema<IAttempt>({
@@ -85,11 +87,20 @@ const AttemptSchema = new Schema<IAttempt>({
   visibilityEvents: [
     {
       _id: false,
-      type: { type: String, enum: ["blur", "hidden", "focus", "visible"], required: true },
-      at: { type: Date, default: Date.now },
+      type: {
+        type: String,
+        enum: ["blur", "hidden", "focus", "visible"],
+        required: true,
+      },
+      at: {
+        type: Date,
+        default: Date.now,
+      },
     },
   ],
   submittedAt: { type: Date, default: null },
+  focusLossCount: { type: Number, default: 0, min: 0 },
+  isDocumentHidden: { type: Boolean, default: false },
 });
 
 // CRITICAL: enforces "one attempt per student per test" atomically at the DB layer.

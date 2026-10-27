@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { Response } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
@@ -528,37 +529,67 @@ export async function deleteTest(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
 
-  // Never delete a test while students are still sitting it.
-  const liveAttempts = await Attempt.countDocuments({
-    testId: test._id,
-    status: "in-progress",
-    deadline: { $gt: new Date() },
-  });
-  if (liveAttempts > 0) {
-    return res.status(409).json({
-      error: `${liveAttempts} student(s) are sitting this test right now. Try again after they finish.`,
+  const session = await mongoose.startSession();
+
+  let liveAttempts = 0;
+  let testMissing = false;
+
+  try {
+    await session.withTransaction(async () => {
+      // Recheck ownership and existence inside the transaction.
+      const currentTest = await Test.findOne({
+        _id: test._id,
+        lecturerId: req.lecturer!.id,
+      }).session(session);
+
+      if (!currentTest) {
+        testMissing = true;
+        return;
+      }
+
+      // Do not delete a test while students are actively taking it.
+      liveAttempts = await Attempt.countDocuments({
+        testId: currentTest._id,
+        status: "in-progress",
+        deadline: { $gt: new Date() },
+      }).session(session);
+
+      if (liveAttempts > 0) return;
+
+      // All three operations commit together or roll back together.
+      await Question.deleteMany(
+        { testId: currentTest._id },
+        { session }
+      );
+
+      await Attempt.deleteMany(
+        { testId: currentTest._id },
+        { session }
+      );
+
+      await Test.deleteOne(
+        { _id: currentTest._id },
+        { session }
+      );
     });
+
+    if (testMissing) {
+      return res.status(404).json({ error: "Test not found" });
+    }
+
+    if (liveAttempts > 0) {
+      return res.status(409).json({
+        error: `${liveAttempts} student(s) are sitting this test right now. Try again after they finish.`,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      message: "Test deleted successfully",
+    });
+  } finally {
+    await session.endSession();
   }
-
-  // Delete all questions belonging to the test
-  await Question.deleteMany({
-    testId: test._id,
-  });
-
-  // Delete all attempts belonging to the test
-  await Attempt.deleteMany({
-    testId: test._id,
-  });
-
-  // Delete the test itself
-  await Test.deleteOne({
-    _id: test._id,
-  });
-
-  return res.json({
-    ok: true,
-    message: "Test deleted successfully",
-  });
 }
 
 const approveSchema = z.object({
@@ -734,7 +765,7 @@ export async function exportResults(req: AuthedRequest, res: Response) {
   // No answers are loaded here: the export doesn't need them and they make big classes slow.
   const attempts = await Attempt.find({ testId: test._id })
     .populate("studentId", "idNumber")
-    .select("studentId status score startedAt submittedAt visibilityEvents shuffleMap.questionOrder totalMarks marksPerQuestion");
+    .select("studentId status score startedAt submittedAt visibilityEvents focusLossCount shuffleMap.questionOrder totalMarks marksPerQuestion");
 
   const csv = buildResultsCsv(test, attempts as any[]);
   const filename = `${fileSlug(test.title)}-results-${new Date().toISOString().slice(0, 10)}.csv`;
