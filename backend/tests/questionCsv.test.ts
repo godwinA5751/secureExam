@@ -3,13 +3,13 @@ import { parseQuestionsCsv, duplicateKey } from "../src/services/questionCsvServ
 
 function parse(
   csv: string | Buffer,
-  over: { defaultTopic?: string; existing?: string[] } = {},
+  over: { defaultTopic?: string; existing?: string[]; testTopics?: string[] } = {},
   mime = "text/csv"
 ) {
   const buffer = typeof csv === "string" ? Buffer.from(csv, "utf8") : csv;
   return parseQuestionsCsv(buffer, mime, {
     defaultTopic: over.defaultTopic ?? "General",
-    testTopics: ["Networking", "Databases"],
+    testTopics: over.testTopics ?? ["Networking", "Databases"],
     existingTexts: new Set((over.existing ?? []).map(duplicateKey)),
   });
 }
@@ -54,6 +54,18 @@ describe("parseQuestionsCsv: answers and topics", () => {
   it("understands common header names", () => {
     const r = parse("Question Text,Option A,Option B,Correct Answer\nWhat is it?,x,y,B\n");
     expect(r.questions[0]).toMatchObject({ options: ["x", "y"], correctOptionIndex: 1 });
+  });
+
+  it("uses one spelling per topic: existing topics win, then the first one seen in the file", () => {
+    const r = parse(
+      "question,A,B,correct,topic\n" +
+        "One?,x,y,A,networking\n" +
+        "Two?,x,y,A,NETWORKING\n" +
+        "Three?,x,y,A,databases\n" +
+        "Four?,x,y,A,Databases\n",
+      { testTopics: ["Databases"] }
+    );
+    expect(r.questions.map((q) => q.topic)).toEqual(["networking", "networking", "Databases", "Databases"]);
   });
 });
 

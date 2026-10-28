@@ -101,9 +101,9 @@ export default function Tests() {
       )}
 
       {!loading && (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {tests.map((t) => (
-            <div key={t.id} className="bg-white rounded-2xl border border-slate-200 p-5">
+            <div key={t.id} className="bg-white rounded-2xl border border-slate-200 p-6 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-800">{t.title}</p>

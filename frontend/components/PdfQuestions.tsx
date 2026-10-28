@@ -8,13 +8,14 @@ import {
   maxQuestionsFor,
   planBatches,
 } from "../lib/pdfText";
+import { topicFromFileName } from "../lib/topics";
 
 type Mode = "generate" | "extract";
-type Props = { testId: string; topics: string[]; onChanged: () => Promise<void> };
+type Props = { testId: string; onChanged: () => Promise<void> };
 
-export default function PdfQuestions({ testId, topics, onChanged }: Props) {
+export default function PdfQuestions({ testId, onChanged }: Props) {
   const [mode, setMode] = useState<Mode>("generate");
-  const [topic, setTopic] = useState("");
+  const [topicLabel, setTopicLabel] = useState("");
   const [count, setCount] = useState(20);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -23,9 +24,8 @@ export default function PdfQuestions({ testId, topics, onChanged }: Props) {
   const stopRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const chosenTopic = topic || topics[0] || "General";
-
   async function run(file: File) {
+    const label = topicLabel.trim() || topicFromFileName(file.name);
     stopRef.current = false;
     setError(null);
     setMessage(null);
@@ -66,7 +66,7 @@ export default function PdfQuestions({ testId, topics, onChanged }: Props) {
           const r = await api.generateFromText(testId, {
             mode,
             text: chunks[plan[i].chunk],
-            topic: chosenTopic,
+            topic: label,
             count: plan[i].count,
           });
           totals.added += r.added;
@@ -80,7 +80,7 @@ export default function PdfQuestions({ testId, topics, onChanged }: Props) {
             break;
           }
           setProgress(`Looking for questions… part ${i + 1} of ${chunks.length}`);
-          const r = await api.generateFromText(testId, { mode, text: chunks[i], topic: chosenTopic });
+          const r = await api.generateFromText(testId, { mode, text: chunks[i], topic: label });
           totals.added += r.added;
           totals.duplicates += r.duplicatesSkipped;
           totals.withoutAnswer += r.withoutAnswer;
@@ -98,7 +98,7 @@ export default function PdfQuestions({ testId, topics, onChanged }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 p-4">
+    <div className="rounded-xl border border-slate-200 p-6">
       <h3 className="text-sm font-medium text-slate-800">Questions from a PDF</h3>
       <p className="mt-1 text-xs text-slate-500">
         The PDF is read in your browser and is not uploaded. Only its text is sent to Google&apos;s Gemini.
@@ -121,20 +121,15 @@ export default function PdfQuestions({ testId, topics, onChanged }: Props) {
         </label>
       </div>
 
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <select
-          value={chosenTopic}
+      <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-3">
+        <input
+          value={topicLabel}
+          onChange={(e) => setTopicLabel(e.target.value)}
           disabled={busy}
-          onChange={(e) => setTopic(e.target.value)}
-          aria-label="Topic for these questions"
-          className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-        >
-          {(topics.length ? topics : ["General"]).map((t) => (
-            <option key={t} value={t}>
-              Topic: {t}
-            </option>
-          ))}
-        </select>
+          placeholder="Topic label (default: the file's name)"
+          aria-label="Topic label for these questions"
+          className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
+        />
         {mode === "generate" && (
           <label className="flex items-center gap-2 text-xs text-slate-600">
             Questions to write

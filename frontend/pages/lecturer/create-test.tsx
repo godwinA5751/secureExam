@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { api } from "../../lib/api";
+import { topicFromFileName } from "../../lib/topics";
 import { Skeleton } from "../../components/Skeleton";
 import { useProgressMessage } from "../../lib/useProgressMessage";
 import { invalidateTests, useDebounced } from "../../lib/hooks";
@@ -35,7 +36,7 @@ function downloadTemplate() {
 export default function CreateTest() {
   const router = useRouter();
   const [title, setTitle] = useState("");
-  const [topics, setTopics] = useState("");
+  const [aiTopics, setAiTopics] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [duration, setDuration] = useState(20);
@@ -91,7 +92,7 @@ export default function CreateTest() {
   const [uploadIssues, setUploadIssues] = useState<string[]>([]);
 
   const aiMessages = useMemo(() => {
-    const topicList = topics.split(",").map((s) => s.trim()).filter(Boolean)
+    const topicList = aiTopics.split(",").map((s) => s.trim()).filter(Boolean)
     return [
       "Reading your topics…",
       ...topicList.map((t) => `Researching “${t}”…`),
@@ -102,7 +103,7 @@ export default function CreateTest() {
       "Almost there…",
       "Taking a little longer than usual…", // shown if Gemini is busy and we're retrying
     ];
-  }, [topics]);
+  }, [aiTopics]);
 
   const aiMessage = useProgressMessage(aiLoading, aiMessages, 2500);
 
@@ -141,7 +142,6 @@ export default function CreateTest() {
     try {
       const { test, accessCode } = await api.createTest({
         title,
-        topics: topics.split(",").map((s) => s.trim()).filter(Boolean),
         loginWindowStart: new Date(start).toISOString(),
         loginWindowEnd: new Date(end).toISOString(),
         durationMinutes: duration,
@@ -151,7 +151,6 @@ export default function CreateTest() {
       setTestId(test.id);
       setLinkToken(test.linkToken);
       setAccessCode(accessCode);
-      setQTopic(topics.split(",")[0]?.trim() ?? "");
       invalidateTests();
     } catch (err: any) {
       setError(err.message)
@@ -185,7 +184,7 @@ export default function CreateTest() {
     setUploadIssues([]);
     setUploading(true);
     try {
-      const r = await api.uploadQuestions(testId, file, uploadTopic.trim());
+      const r = await api.uploadQuestions(testId, file, uploadTopic.trim() || topicFromFileName(file.name));
       setUploadMsg(
         `${r.acceptedCount} question${r.acceptedCount === 1 ? "" : "s"} added for review, ${r.rejectedCount} row${
           r.rejectedCount === 1 ? "" : "s"
@@ -227,11 +226,16 @@ export default function CreateTest() {
 
   async function handleGenerateAI() {
     if (!testId) return;
+    const topicList = aiTopics.split(",").map((s) => s.trim()).filter(Boolean);
+    if (topicList.length === 0) {
+      setError("Enter at least one topic to generate questions about.");
+      return;
+    }
     setError(null);
     setAiNote(null);
     setAiLoading(true);
     try {
-      const res = await api.generateQuestions(testId, aiCount);
+      const res = await api.generateQuestions(testId, { topics: topicList, count: aiCount });
       if (res.count < res.requested) {
         setAiNote(`Generated ${res.count} of ${res.requested}. Some were invalid and skipped.`);
       }
@@ -252,7 +256,7 @@ export default function CreateTest() {
         text: qText,
         options: qOptions.filter((o) => o.trim().length > 0),
         correctOptionIndex: qCorrect,
-        topic: qTopic,
+        topic: qTopic.trim(),
       });
       setQText("");
       setQOptions(["", "", "", ""]);
@@ -418,122 +422,136 @@ export default function CreateTest() {
 
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
-      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-lg font-semibold text-slate-800">Create test</h1>
-          <button onClick={() => router.push("/lecturer/tests")} className="text-md text-slate-600 rounded-full w-8 h-8 bg-slate-100 font-bold">
-            x
-          </button>
-        </div>
+      <div className="flex items-center justify-between mb-6 fixed top-0 left-0 right-0 bg-slate-50 border-b border-slate-200 px-4 py-4 z-10">
+        <h1 className="text-lg font-semibold text-slate-800">Create test</h1>
+        <button onClick={() => router.push("/lecturer/tests")} className="text-md text-slate-600 rounded-full w-8 h-8 bg-slate-100 font-bold">
+          x
+        </button>
+      </div>
+      <div className="mt-16">
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
         {!testId && (
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div>
-              <label className="block text-sm text-slate-600 mb-1">Title</label>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} required
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm text-slate-600 mb-1">Topics (comma-separated)</label>
-              <input value={topics} onChange={(e) => setTopics(e.target.value)} required
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="max-w-2xl mx-auto mt-5 bg-white rounded-xl shadow-sm border border-slate-200 p-8">
+            <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-sm text-slate-600 mb-1">Login window start</label>
-                <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required
+                <label className="block text-sm text-slate-600 mb-1">Title</label>
+                <input value={title} onChange={(e) => setTitle(e.target.value)} required
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              </div> 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">Login window start</label>
+                  <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">Login window end</label>
+                  <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">Duration per student (minutes)</label>
+                <input type="number" min={1} max={480} value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value))}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-sm text-slate-600 mb-1">Login window end</label>
-                <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-slate-600 mb-1">Duration per student (minutes)</label>
-              <input type="number" min={1} max={480} value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm text-slate-600 mb-1">
-                Instructions for students (optional)
-              </label>
-              <textarea
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-                rows={5}
-                maxLength={4000}
-                placeholder="e.g. Closed book. Calculators allowed. Answer all questions."
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-              <p className="mt-1 text-xs text-slate-400">{instructions.length}/4000</p>
-            </div>
-            <button type="submit" disabled={creating}
-              className="w-full rounded-lg bg-slate-900 text-white py-2 text-sm font-medium disabled:opacity-50">
-              {creating ? "Creating..." : "Create test"}
-            </button>
-          </form>
-        )}
-
-        {testId && !published && (
-          <div className="space-y-6">
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
-              <p className="font-medium mb-1">Access code (share once, out-of-band)</p>
-              <p className="font-mono text-lg tracking-widest">{accessCode}</p>
-              <p className="mt-1 text-xs">Won&apos;t be shown again. Distribute alongside the roster, not with the link.</p>
-            </div>
-
-            <div>
-              <label className="block text-sm text-slate-600 mb-1">Upload roster (CSV: ID number, optional full name)</label>
-              <input type="file" accept=".csv" onChange={handleRoster} className="w-full text-sm" />
-              {rosterMsg && <p className="text-xs text-slate-500 mt-1">{rosterMsg}</p>}
-            </div>
-
-            <div className="border-t border-slate-200 pt-5">
-              <h2 className="text-sm font-semibold text-slate-800 mb-3">Questions</h2>
-
-              <div className="mb-2 flex items-center gap-2">
-                <label htmlFor="ai-count" className="text-xs text-slate-600">
-                  Questions to generate
+                <label className="block text-sm text-slate-600 mb-1">
+                  Instructions for students (optional)
                 </label>
-                <input
-                  id="ai-count"
-                  type="number"
-                  min={1}
-                  max={40}
-                  value={aiCount}
-                  onChange={(e) => setAiCount(Math.min(40, Math.max(1, Number(e.target.value) || 1)))}
-                  className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                <textarea
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                  rows={5}
+                  maxLength={4000}
+                  placeholder="e.g. Closed book. Calculators allowed. Answer all questions."
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
-                <span className="text-xs text-slate-400">spread across your topics</span>
+                <p className="mt-1 text-xs text-slate-400">{instructions.length}/4000</p>
+              </div>
+              <button type="submit" disabled={creating}
+                className="w-full rounded-lg bg-slate-900 text-white py-2 text-sm font-medium disabled:opacity-50">
+                {creating ? "Creating..." : "Create test"}
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
+
+      {testId && !published && (
+        <div className="space-y-6 w-full mx-auto mt-5 bg-white rounded-xl shadow-sm border border-slate-200 p-8 ">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="mt-6">
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
+                <p className="font-medium mb-1">Access code (share once, out-of-band)</p>
+                <p className="font-mono text-lg tracking-widest">{accessCode}</p>
+                <p className="mt-1 text-xs">Won&apos;t be shown again. Distribute alongside the roster, not with the link.</p>
               </div>
 
-              <button
-                onClick={handleGenerateAI}
-                disabled={aiLoading}
-                className={`w-full rounded-lg border py-2 text-sm font-medium mb-4 flex items-center justify-center gap-2 ${
-                  aiLoading
-                    ? "cursor-wait border-violet-200 bg-violet-50 text-violet-700"
-                    : "border-slate-300 text-slate-700 disabled:opacity-50"
-                }`}
-              >
-                {aiLoading ? (
-                  <>
-                    <Spinner />
-                    <span key={aiMessage} className="fade-in" aria-live="polite">
-                      {aiMessage}
-                    </span>
-                  </>
-                ) : (
-                  "Generate questions with AI"
-                )}
-              </button>
+              <div className="mt-6">
+                <label className="block text-sm text-slate-600 mb-1">Upload roster (CSV: ID number, optional full name)</label>
+                <input type="file" accept=".csv" onChange={handleRoster} className="w-full text-sm" />
+                {rosterMsg && <p className="text-xs text-slate-500 mt-1">{rosterMsg}</p>}
+              </div>
 
-              {aiNote && <p className="mb-3 text-xs text-amber-700">{aiNote}</p>}
+              <div className="rounded-xl border border-slate-200 p-6 mt-6">
+                <h2 className="text-sm font-semibold text-slate-800 mb-3">Questions</h2>
 
-              <div className="rounded-xl border border-slate-200 p-4">
+                <div className="my-2 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
+                  <div className="mb-2">
+                    <label htmlFor="ai-topics" className="mb-1 block text-xs text-slate-600">
+                      Topics (comma-separated)
+                    </label>
+                    <input
+                      id="ai-topics"
+                      value={aiTopics}
+                      onChange={(e) => setAiTopics(e.target.value)}
+                      placeholder="e.g. Networking, Databases, Security"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="mb-2 flex flex-col items-start gap-1">
+                  <label htmlFor="ai-count" className="text-xs text-slate-600">
+                    Questions to generate
+                  </label>
+                    <input
+                      id="ai-count"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={aiCount}
+                      onChange={(e) => setAiCount(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+                      className="w-20 rounded-lg border border-slate-300 p-2 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleGenerateAI}
+                  disabled={aiLoading || !aiTopics.trim()}
+                  className={`w-full rounded-lg border py-2 text-sm font-medium mt-6 flex items-center justify-center gap-2 ${
+                    aiLoading
+                      ? "cursor-wait border-violet-200 bg-violet-50 text-violet-700"
+                      : "border-slate-300 text-slate-700 disabled:opacity-50"
+                  }`}
+                >
+                  {aiLoading ? (
+                    <>
+                      <Spinner />
+                      <span key={aiMessage} className="fade-in" aria-live="polite">
+                        {aiMessage}
+                      </span>
+                    </>
+                  ) : (
+                    "Generate questions with AI"
+                  )}
+                </button>
+
+                {aiNote && <p className="mb-3 text-xs text-amber-700">{aiNote}</p>}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-6 mt-6">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-medium text-slate-800">Upload questions from a file</h3>
                   <button
@@ -548,11 +566,11 @@ export default function CreateTest() {
                   CSV with a header row: question, A, B, C, D (up to F), correct (a letter), and an optional topic.
                   Uploaded questions wait for your review. In Excel use Save As, then &quot;CSV UTF-8&quot;.
                 </p>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="mt-3 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
                   <input
                     value={uploadTopic}
                     onChange={(e) => setUploadTopic(e.target.value)}
-                    placeholder="Topic for rows without one (default: first topic)"
+                    placeholder="Topic for rows without one (default: the file's name)"
                     className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
                   />
                   <input
@@ -574,14 +592,15 @@ export default function CreateTest() {
                   </ul>
                 )}
               </div>
+            </div>
 
+            <div className="mt-6">    
               <PdfQuestions
                 testId={testId}
-                topics={topics.split(",").map((t) => t.trim()).filter(Boolean)}
                 onChanged={showNewQuestions}
               />
 
-              <form onSubmit={handleAddManual} className="space-y-2 mb-4 bg-slate-50 rounded-lg p-4">
+              <form onSubmit={handleAddManual} className="space-y-2 my-4 bg-slate-50 rounded-lg p-5">
                 <p className="text-xs font-medium text-slate-600 mb-1">Add a question manually</p>
                 <input value={qText} onChange={(e) => setQText(e.target.value)} placeholder="Question text" required
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
@@ -606,53 +625,58 @@ export default function CreateTest() {
                     />
                   </div>
                 ))}
-                <input value={qTopic} onChange={(e) => setQTopic(e.target.value)} placeholder="Topic" required
+                <input value={qTopic} onChange={(e) => setQTopic(e.target.value)} placeholder="Topic (optional)"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                 <button type="submit" className="w-full rounded-lg bg-slate-800 text-white py-2 text-sm font-medium">
                   Add question
                 </button>
               </form>
+            </div>
 
-              {qSummary.total > 0 && (
+            
+          </div>
+          <div className="pt-5">
+            {qSummary.total > 0 && (
+              <div className="space-y-2 border-t border-slate-200 pt-5">
                 <div className="space-y-2">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs text-slate-500">
-                        {aiLoading
-                          ? "New questions will appear below"
-                          : `${approvedCount} approved, ${unapprovedCount} pending review (${qSummary.total} total)`}
-                      </p>
-                      {!aiLoading && unapprovedCount > 0 && (
-                        <div className="flex gap-3">
-                          <button
-                            type="button"
-                            onClick={() => handleBulk("approve", "pending")}
-                            className="text-xs font-medium text-emerald-700 underline"
-                          >
-                            Approve all pending
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleBulk("delete", "pending")}
-                            className="text-xs font-medium text-red-600 underline"
-                          >
-                            Delete all pending
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-slate-500">
+                      {aiLoading
+                        ? "New questions will appear below"
+                        : `${approvedCount} approved, ${unapprovedCount} pending review (${qSummary.total} total)`}
+                    </p>
+                    {!aiLoading && unapprovedCount > 0 && (
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleBulk("approve", "pending")}
+                          className="text-xs font-medium text-emerald-700 underline"
+                        >
+                          Approve all pending
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleBulk("delete", "pending")}
+                          className="text-xs font-medium text-red-600 underline"
+                        >
+                          Delete all pending
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <input
-                        value={qSearch}
-                        onChange={(e) => changeFilter(() => setQSearch(e.target.value))}
-                        placeholder="Search questions..."
-                        className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
-                      />
+                  <div className="flex justify-between items-center">
+                    <input
+                      value={qSearch}
+                      onChange={(e) => changeFilter(() => setQSearch(e.target.value))}
+                      placeholder="Search questions..."
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs max-w-xl"
+                    />
+                    <div>
                       <select
                         value={qStatus}
                         onChange={(e) => changeFilter(() => setQStatus(e.target.value as typeof qStatus))}
-                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs w-100 sm:w-auto"
                       >
                         <option value="all">All</option>
                         <option value="approved">Approved</option>
@@ -661,7 +685,7 @@ export default function CreateTest() {
                       <select
                         value={qTopicFilter}
                         onChange={(e) => changeFilter(() => setQTopicFilter(e.target.value))}
-                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs w-100 sm:w-auto"
                       >
                         <option value="">All topics</option>
                         {qSummary.topics.map((t) => (
@@ -671,189 +695,189 @@ export default function CreateTest() {
                         ))}
                       </select>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-3 text-xs">
-                      <label className="flex items-center gap-1.5 text-slate-600">
-                        <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectPage} />
-                        Select this page
-                      </label>
-                      {selected.size > 0 && (
-                        <>
-                          <span className="text-slate-400">{selected.size} selected</span>
-                          <button type="button" onClick={() => handleBulk("approve")} className="font-medium text-emerald-700 hover:underline">
-                            Approve selected
-                          </button>
-                          <button type="button" onClick={() => handleBulk("delete")} className="font-medium text-red-600 hover:underline">
-                            Delete selected
-                          </button>
-                          <button type="button" onClick={() => setSelected(new Set())} className="text-slate-500 hover:underline">
-                            Clear
-                          </button>
-                        </>
-                      )}
-                    </div>
                   </div>
-                  <ul className="divide-y divide-slate-200 border border-slate-200 rounded-lg">
-                    {questions.map((q) => (
-                      <li key={q.id} className="p-3 text-sm">
-                        {editingQuestionId === q.id ? (
-                          <div className="space-y-3">
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">
-                                Question
-                              </label>
 
-                              <textarea
-                                value={editText}
-                                onChange={(e) => setEditText(e.target.value)}
-                                rows={3}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                              />
-                            </div>
+                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                    <label className="flex items-center gap-1.5 text-slate-600">
+                      <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectPage} />
+                      Select this page
+                    </label>
+                    {selected.size > 0 && (
+                      <>
+                        <span className="text-slate-400">{selected.size} selected</span>
+                        <button type="button" onClick={() => handleBulk("approve")} className="font-medium text-emerald-700 hover:underline">
+                          Approve selected
+                        </button>
+                        <button type="button" onClick={() => handleBulk("delete")} className="font-medium text-red-600 hover:underline">
+                          Delete selected
+                        </button>
+                        <button type="button" onClick={() => setSelected(new Set())} className="text-slate-500 hover:underline">
+                          Clear
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <ul className=" border border-slate-200 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3 p-3">
+                  {questions.map((q) => (
+                    <li key={q.id} className="p-3 text-sm border border-slate-200 rounded-lg bg-slate-50">
+                      {editingQuestionId === q.id ? (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Question
+                            </label>
 
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">
-                                Options
-                              </label>
+                            <textarea
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              rows={3}
+                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            />
+                          </div>
 
-                              <div className="space-y-2">
-                                {editOptions.map((option, i) => (
-                                  <div key={i} className="flex items-center gap-2">
-                                    <input
-                                      type="radio"
-                                      name={`correct-${q.id}`}
-                                      checked={editCorrect === i}
-                                      onChange={() => setEditCorrect(i)}
-                                      title="Mark as correct answer"
-                                    />
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Options
+                            </label>
 
-                                    <input
-                                      value={option}
-                                      onChange={(e) => {
-                                        const next = [...editOptions];
-                                        next[i] = e.target.value;
-                                        setEditOptions(next);
-                                      }}
-                                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                      placeholder={`Option ${i + 1}`}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
+                            <div className="space-y-2">
+                              {editOptions.map((option, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name={`correct-${q.id}`}
+                                    checked={editCorrect === i}
+                                    onChange={() => setEditCorrect(i)}
+                                    title="Mark as correct answer"
+                                  />
 
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">
-                                Topic
-                              </label>
-
-                              <input
-                                value={editTopic}
-                                onChange={(e) => setEditTopic(e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                              />
-                            </div>
-
-                            <div className="flex gap-2 pt-1">
-                              <button
-                                type="button"
-                                onClick={handleSaveQuestion}
-                                disabled={savingEdit}
-                                className="rounded-lg bg-slate-800 text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-                              >
-                                {savingEdit ? "Saving..." : "Save changes"}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingQuestionId(null);
-                                  setError(null);
-                                }}
-                                disabled={savingEdit}
-                                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
-                              >
-                                Cancel
-                              </button>
+                                  <input
+                                    value={option}
+                                    onChange={(e) => {
+                                      const next = [...editOptions];
+                                      next[i] = e.target.value;
+                                      setEditOptions(next);
+                                    }}
+                                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    placeholder={`Option ${i + 1}`}
+                                  />
+                                </div>
+                              ))}
                             </div>
                           </div>
-                        ) : (
-                          <>
-                            <div className="flex items-start justify-between gap-2">
-                              <label className="flex items-start gap-2 text-slate-800">
-                                <input
-                                  type="checkbox"
-                                  checked={selected.has(q.id)}
-                                  onChange={() => toggleSelect(q.id)}
-                                  className="mt-1"
-                                  aria-label="Select question"
-                                />
-                                <span>{q.text}</span>
-                              </label>
 
-                              <span
-                                className={`text-xs shrink-0 rounded-full px-2 py-0.5 ${
-                                  q.approved
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : "bg-amber-100 text-amber-700"
-                                }`}
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">
+                              Topic
+                            </label>
+
+                            <input
+                              value={editTopic}
+                              onChange={(e) => setEditTopic(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={handleSaveQuestion}
+                              disabled={savingEdit}
+                              className="rounded-lg bg-slate-800 text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                            >
+                              {savingEdit ? "Saving..." : "Save changes"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingQuestionId(null);
+                                setError(null);
+                              }}
+                              disabled={savingEdit}
+                              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between gap-2">
+                            <label className="flex items-start gap-2 text-slate-800">
+                              <input
+                                type="checkbox"
+                                checked={selected.has(q.id)}
+                                onChange={() => toggleSelect(q.id)}
+                                className="mt-1"
+                                aria-label="Select question"
+                              />
+                              <span>{q.text}</span>
+                            </label>
+
+                            <span
+                              className={`text-xs shrink-0 rounded-full px-2 py-0.5 ${
+                                q.approved
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {q.approved ? "approved" : "pending"}
+                            </span>
+                          </div>
+
+                          <ul className="mt-1 text-xs text-slate-500 list-disc list-inside">
+                            {q.options.map((o, i) => (
+                              <li
+                                key={i}
+                                className={
+                                  i === q.correctOptionIndex
+                                    ? "text-emerald-700 font-medium"
+                                    : ""
+                                }
                               >
-                                {q.approved ? "approved" : "pending"}
-                              </span>
-                            </div>
+                                {o}
+                              </li>
+                            ))}
+                          </ul>
 
-                            <ul className="mt-1 text-xs text-slate-500 list-disc list-inside">
-                              {q.options.map((o, i) => (
-                                <li
-                                  key={i}
-                                  className={
-                                    i === q.correctOptionIndex
-                                      ? "text-emerald-700 font-medium"
-                                      : ""
-                                  }
-                                >
-                                  {o}
-                                </li>
-                              ))}
-                            </ul>
+                          <div className="mt-2 flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => startEditingQuestion(q)}
+                              className="text-xs font-medium text-violet-700 hover:underline"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteQuestion(q.id)}
+                              className="text-xs font-medium text-red-600 hover:underline"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                  {aiLoading && <QuestionSkeletonRows count={4} />}
+                </ul>
+                {!aiLoading && questions.length === 0 && (
+                  <p className="py-3 text-center text-xs text-slate-400">No questions match your filters.</p>
+                )}
+                <Pagination
+                  page={qPage}
+                  totalPages={qTotalPages}
+                  total={qTotal}
+                  pageSize={Q_PAGE_SIZE}
+                  onPageChange={setQPage}
+                />
+              </div>
+            )}
 
-                            <div className="mt-2 flex items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={() => startEditingQuestion(q)}
-                                className="text-xs font-medium text-violet-700 hover:underline"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteQuestion(q.id)}
-                                className="text-xs font-medium text-red-600 hover:underline"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </li>
-                    ))}
-                    {aiLoading && <QuestionSkeletonRows count={4} />}
-                  </ul>
-                  {!aiLoading && questions.length === 0 && (
-                    <p className="py-3 text-center text-xs text-slate-400">No questions match your filters.</p>
-                  )}
-                  <Pagination
-                    page={qPage}
-                    totalPages={qTotalPages}
-                    total={qTotal}
-                    pageSize={Q_PAGE_SIZE}
-                    onPageChange={setQPage}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-slate-200 pt-5">
+            <div className="border-t border-slate-200 pt-5 mt-5">
               <h2 className="text-sm font-semibold text-slate-800 mb-3">Exam settings</h2>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -898,18 +922,19 @@ export default function CreateTest() {
             <button
               onClick={handlePublish}
               disabled={approvedCount === 0 || aiLoading || publishing || tooMany}
-              className="w-full rounded-lg bg-emerald-700 text-white py-2 text-sm font-medium disabled:opacity-50"
+              className="w-full rounded-lg bg-emerald-700 text-white py-2 text-sm font-medium disabled:opacity-50 mt-5"
             >
               {publishing ? "Publishing..." : "Publish test"}
             </button>
             {approvedCount === 0 && (
-              <p className="text-xs text-slate-400 -mt-4">Add or approve at least one question to publish.</p>
+              <p className="text-xs text-slate-400 mt-2">Add or approve at least one question to publish.</p>
             )}
           </div>
-        )}
+        </div>
+      )}
 
-        {testId && published && linkToken && (
-          <div className="space-y-3">
+      {testId && published && linkToken && (
+          <div className="space-y-3 border border-slate-200 rounded-xl bg-white shadow-sm p-8 max-w-2xl mx-auto mt-5">
             <p className="text-sm font-medium text-emerald-700">Test published.</p>
             <div>
               <label className="block text-sm text-slate-600 mb-1">Student login link (share this)</label>
@@ -934,7 +959,6 @@ export default function CreateTest() {
             </div>
           </div>
         )}
-      </div>
     </div>
   );
 }

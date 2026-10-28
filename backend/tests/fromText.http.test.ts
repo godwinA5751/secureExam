@@ -34,7 +34,6 @@ async function newTest(): Promise<string> {
     .post("/api/tests")
     .send({
       title: "From text",
-      topics: ["Networking", "Databases"],
       loginWindowStart: new Date(Date.now() - 60_000).toISOString(),
       loginWindowEnd: new Date(Date.now() + 3_600_000).toISOString(),
       durationMinutes: 30,
@@ -70,6 +69,11 @@ beforeEach(() => {
 
 describe("generate-from-text", () => {
   it("adds generated questions as pending, with the topic snapped to the test's spelling", async () => {
+    // The test already has a "Networking" question, so "networking" must reuse that spelling.
+    await lecturer
+      .post(`/api/tests/${testId}/questions/manual`)
+      .send({ text: "Seed question?", options: ["a", "b"], correctOptionIndex: 0, topic: "Networking" })
+      .expect(201);
     gen.mockResolvedValue([mk(1), mk(2), mk(3)]);
 
     const res = await post({ mode: "generate", text: TEXT, topic: "networking", count: 3 }).expect(201);
@@ -123,7 +127,9 @@ describe("generate-from-text", () => {
 
     const published = await newTest();
     await Test.updateOne({ _id: published }, { $set: { status: "published" } });
-    expect((await post({ mode: "generate", text: TEXT, topic: "Networking", count: 3 }, lecturer, published)).status).toBe(400);
+    expect(
+      (await post({ mode: "generate", text: TEXT, topic: "Networking", count: 3 }, lecturer, published)).status
+    ).toBe(400);
     expect(gen).not.toHaveBeenCalled();
   });
 
@@ -143,7 +149,9 @@ describe("generate-from-text", () => {
 
     const first = await post({ mode: "generate", text: TEXT, topic: "Networking", count: 2 }, lecturer, id).expect(201);
     expect(first.body.added).toBe(1); // only one place left
-    expect((await post({ mode: "generate", text: TEXT, topic: "Networking", count: 2 }, lecturer, id)).status).toBe(400);
+    expect(
+      (await post({ mode: "generate", text: TEXT, topic: "Networking", count: 2 }, lecturer, id)).status
+    ).toBe(400);
     expect(await Question.countDocuments({ testId: id })).toBe(500);
   });
 });

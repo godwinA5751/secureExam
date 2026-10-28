@@ -175,7 +175,7 @@ export async function generateQuestionsForTopics(
 
   const prompt = [
     `Generate exactly ${total} multiple-choice exam questions in total, split by topic as follows: ${plan}.`,
-    "Each question must have exactly 4 options, plausible distractors, and exactly one correct answer.",
+    "Each question must have either 4 options or 2(true and false), plausible distractors, and exactly one correct answer.",
     "Set correctOptionIndex to the 0-based index of the correct option within that question's options array.",
     "Set topic to exactly one of the provided topic strings, unchanged.",
     "Do not repeat or closely paraphrase any question.",
@@ -264,7 +264,7 @@ export async function generateQuestionsFromText(
 
   const prompt = [
     `Write exactly ${count} multiple-choice exam questions based ONLY on the course material below.`,
-    "Each question must have exactly 4 options, plausible distractors, and exactly one correct answer that the material supports.",
+    "Each question must have either 4 options or 2(true and false), plausible distractors, and exactly one correct answer that the material supports.",
     "Set correctOptionIndex to the 0-based index of the correct option.",
     `Set topic to ${JSON.stringify(topic)} exactly.`,
     "Test understanding of different ideas in the material. Do not repeat or closely paraphrase a question.",

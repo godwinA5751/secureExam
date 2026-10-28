@@ -16,7 +16,6 @@ async function newTest(): Promise<string> {
     .post("/api/tests")
     .send({
       title: "Upload test",
-      topics: ["Networking", "Databases"],
       loginWindowStart: new Date(Date.now() - 60_000).toISOString(),
       loginWindowEnd: new Date(Date.now() + 3_600_000).toISOString(),
       durationMinutes: 30,
@@ -76,7 +75,7 @@ describe("question file upload", () => {
     expect(routes.options).toEqual(["Physical", "Network", "Application", "Session"]);
   });
 
-  it("uses the chosen default topic, or the test's first topic when none is sent", async () => {
+  it("uses the chosen default topic, or General when none is sent", async () => {
     const a = await newTest();
     await upload(lecturer, a, CSV, { topic: "Databases" }).expect(200);
     const topicsA = (await lecturer.get(`/api/tests/${a}/questions`)).body.summary.topics;
@@ -88,7 +87,11 @@ describe("question file upload", () => {
     const b = await newTest();
     await upload(lecturer, b, CSV).expect(200);
     const topicsB = (await lecturer.get(`/api/tests/${b}/questions`)).body.summary.topics;
-    expect(topicsB.find((t: any) => t.topic === "Networking").count).toBe(3); // first topic is Networking
+    expect(topicsB).toEqual([
+      { topic: "Databases", count: 1 },
+      { topic: "General", count: 1 }, // the row with a blank topic
+      { topic: "Networking", count: 2 },
+    ]);
   });
 
   it("rejects missing files, wrong file types and oversized files", async () => {

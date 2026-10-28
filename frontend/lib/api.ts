@@ -149,10 +149,10 @@ export const api = {
   regenerateAccessCode: (testId: string) =>
     request<{ accessCode: string }>(`/api/tests/${testId}/access-code/regenerate`, { method: "POST" }),
 
-  generateQuestions: (testId: string, count?: number) =>
+  generateQuestions: (testId: string, body: { topics: string[]; count?: number }) =>
     request<{ count: number; requested: number; remainingGenerations: number; note: string }>(
       `/api/tests/${testId}/generate-questions`,
-      { method: "POST", body: JSON.stringify(count ? { count } : {}) }
+      { method: "POST", body: JSON.stringify(body) }
     ),
 
   generateFromText: (

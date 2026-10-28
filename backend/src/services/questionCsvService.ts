@@ -107,6 +107,8 @@ export function parseQuestionsCsv(
     if (reasons.length < 100) reasons.push(`Row ${rowNumber}: ${why}`);
   };
 
+  const canonical = new Map(testTopics.map((t) => [squash(t), t]));
+
   for (let i = 1; i < records.length; i++) {
     const row = records[i];
     const rowNumber = i + 1; // matches the row number in a spreadsheet (the header is row 1)
@@ -175,7 +177,9 @@ export function parseQuestionsCsv(
       reject(rowNumber, "no topic");
       continue;
     }
-    const topic = testTopics.find((t) => squash(t) === squash(rawTopic)) ?? rawTopic;
+    const topicKey = squash(rawTopic);
+    const topic = canonical.get(topicKey) ?? rawTopic;
+    canonical.set(topicKey, topic); // the first spelling seen wins within the file
 
     const key = duplicateKey(questionText);
     if (seen.has(key) || existingTexts.has(key)) {

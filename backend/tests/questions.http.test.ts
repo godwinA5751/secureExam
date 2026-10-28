@@ -19,7 +19,6 @@ async function newTest(agent: Agent): Promise<string> {
     .post("/api/tests")
     .send({
       title: "Review tools",
-      topics: ["Networking", "Security", "Databases"],
       loginWindowStart: new Date(Date.now() - 60_000).toISOString(),
       loginWindowEnd: new Date(Date.now() + 3_600_000).toISOString(),
       durationMinutes: 30,
@@ -167,8 +166,11 @@ describe("limits and frozen tests", () => {
     expect(add.status).toBe(400);
     expect(JSON.stringify(add.body)).toMatch(/at most/);
 
-    const generate = await lecturer.post(`/api/tests/${id}/generate-questions`).send({ count: 10 });
+    const generate = await lecturer
+      .post(`/api/tests/${id}/generate-questions`)
+      .send({ topics: ["Networking"], count: 10 });
     expect(generate.status).toBe(400);
+    expect(JSON.stringify(generate.body)).toMatch(/at most/);
   });
 
   it("freezes delete and bulk actions once the test is published", async () => {

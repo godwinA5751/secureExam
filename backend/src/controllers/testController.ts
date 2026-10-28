@@ -21,9 +21,24 @@ import { parsePaging } from "../utils/paging";
 import { totalMarksOf } from "../services/scoring";
 import { parseQuestionsCsv, duplicateKey } from "../services/questionCsvService";
 
+const squashTopic = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Topic names this test's questions already use, one spelling each. */
+async function knownTopics(testId: Types.ObjectId): Promise<string[]> {
+  return (await Question.distinct("topic", { testId })) as string[];
+}
+
+/**
+ * Reuses an existing spelling ("networking" becomes "Networking") so the pool never splits
+ * into near-duplicate topics, which would unbalance each student's random questions.
+ */
+function canonicalTopic(raw: string, known: string[]): string {
+  const cleaned = raw.replace(/\s+/g, " ").trim().slice(0, 100) || "General";
+  return known.find((t) => squashTopic(t) === squashTopic(cleaned)) ?? cleaned;
+}
+
 const createTestSchema = z.object({
   title: z.string().min(3).max(200),
-  topics: z.array(z.string().min(1).max(100)).min(1).max(20),
   instructions: z.string().max(4000).optional(),
   loginWindowStart: z.string().datetime(),
   loginWindowEnd: z.string().datetime(),
@@ -51,7 +66,6 @@ export async function createTest(req: AuthedRequest, res: Response) {
   const test = await Test.create({
     lecturerId: req.lecturer!.id,
     title: data.title,
-    topics: data.topics,
     instructions: data.instructions ?? "",
     loginWindowStart: start,
     loginWindowEnd: end,
@@ -136,8 +150,9 @@ export async function uploadQuestions(
   if (rejectIfPublished(test, res)) return;
   if (!req.file) return res.status(400).json({ error: "CSV file required" });
 
-  const requested = String(req.body?.defaultTopic ?? "").trim().slice(0, 100);
-  const defaultTopic = requested || test.topics[0] || "General";
+  const known = await knownTopics(test._id);
+  const requested = String(req.body?.defaultTopic ?? "").trim();
+  const defaultTopic = requested ? canonicalTopic(requested, known) : "General";
 
   const existing = await Question.find({ testId: test._id }).select("text").lean();
   const existingTexts = new Set(existing.map((q) => duplicateKey(q.text)));
@@ -146,7 +161,7 @@ export async function uploadQuestions(
   try {
     result = parseQuestionsCsv(req.file.buffer, req.file.mimetype, {
       defaultTopic,
-      testTopics: test.topics,
+      testTopics: known,
       existingTexts,
     });
   } catch (e: any) {
@@ -252,9 +267,10 @@ function rejectIfPublished(test: { status: string }, res: Response): boolean {
 }
 
 const MAX_AI_GENERATIONS_PER_TEST = Number(process.env.AI_GENERATIONS_PER_TEST ?? 3);
-const MAX_QUESTIONS_PER_RUN = Number(process.env.AI_MAX_QUESTIONS_PER_RUN ?? 40);
+const MAX_QUESTIONS_PER_RUN = Number(process.env.AI_MAX_QUESTIONS_PER_RUN ?? 100);
 const MAX_QUESTIONS_PER_TEST = Number(process.env.MAX_QUESTIONS_PER_TEST ?? 500);
 const generateSchema = z.object({
+  topics: z.array(z.string().trim().min(1).max(100)).min(1).max(20),
   count: z.number().int().min(1).max(MAX_QUESTIONS_PER_RUN).optional(),
 });
 
@@ -267,9 +283,17 @@ export async function generateQuestions(req: AuthedRequest, res: Response) {
   if (!parsed.success) {
     return res
       .status(400)
-      .json({ error: `Choose between 1 and ${MAX_QUESTIONS_PER_RUN} questions to generate` });
+      .json({ error: `Enter 1 to 20 topics and choose 1 to ${MAX_QUESTIONS_PER_RUN} questions to generate` });
   }
-  const count = parsed.data.count ?? Math.min(MAX_QUESTIONS_PER_RUN, test.topics.length * 5);
+
+  // Reuse the spellings the test already has, and drop repeats ("Networking" and "networking").
+  const known = await knownTopics(test._id);
+  const topics: string[] = [];
+  for (const raw of parsed.data.topics) {
+    const topic = canonicalTopic(raw, [...known, ...topics]);
+    if (!topics.some((t) => squashTopic(t) === squashTopic(topic))) topics.push(topic);
+  }
+  const count = parsed.data.count ?? Math.min(MAX_QUESTIONS_PER_RUN, topics.length * 5);
 
   const existing = await Question.countDocuments({ testId: test._id });
   if (existing + count > MAX_QUESTIONS_PER_TEST) {
@@ -299,7 +323,7 @@ export async function generateQuestions(req: AuthedRequest, res: Response) {
 
   const started = Date.now();
   try {
-    const generated = await generateQuestionsForTopics(test.topics, count);
+    const generated = await generateQuestionsForTopics(topics, count);
     const docs = await Question.insertMany(
       generated.map((g) => ({ ...g, testId: test._id, approved: false }))
     );
@@ -342,7 +366,7 @@ export async function generateFromText(req: AuthedRequest, res: Response) {
   if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
   const { mode, text, count } = parsed.data;
   // Snap to the test's own spelling of the topic so topic balancing treats it as the same one.
-  const topic = test.topics.find((t) => t.toLowerCase() === parsed.data.topic.toLowerCase()) ?? parsed.data.topic;
+  const topic = canonicalTopic(parsed.data.topic, await knownTopics(test._id));
 
   const existing = await Question.find({ testId: test._id }).select("text").lean();
   const room = MAX_QUESTIONS_PER_TEST - existing.length;
@@ -452,7 +476,7 @@ const manualQuestionSchema = z.object({
   text: z.string().min(3).max(1000),
   options: z.array(z.string().min(1).max(300)).min(2).max(6),
   correctOptionIndex: z.number().int().min(0),
-  topic: z.string().min(1).max(100),
+  topic: z.string().min(1).max(100).optional(),
 });
 
 export async function addManualQuestion(req: AuthedRequest, res: Response) {
@@ -479,7 +503,7 @@ export async function addManualQuestion(req: AuthedRequest, res: Response) {
     text: data.text,
     options: data.options,
     correctOptionIndex: data.correctOptionIndex,
-    topic: data.topic,
+    topic: canonicalTopic(data.topic ?? "", await knownTopics(test._id)),
     approved: true,
   });
 
