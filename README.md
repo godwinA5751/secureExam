@@ -77,6 +77,29 @@ attempt that is missing a score.
 All paths finalize through one function (`services/scoring.ts`), which claims the attempt
 atomically, so submit, heartbeat, deadline and sweep can all run at once without double-scoring.
 
+## Building a test
+
+1. **Create the test**: title, start and end time, time per student, optional instructions.
+2. **Add questions**, from any mix of these sources. Everything not typed by hand arrives as
+   "pending" and must be approved before it counts:
+   - **AI from topics**: type the topics and how many questions to write (up to 40 per run).
+   - **Upload a CSV**: header row `question, A, B, C, D, correct, topic`. Download the template from
+     the page. Rows without a topic get the file's name (editable).
+   - **PDF of course material**: the PDF is read in the lecturer's browser and is not uploaded; only
+     its text is sent to Google Gemini, in small pieces. Two modes: write new questions from the
+     material, or copy questions already in the PDF (only those with a clearly marked correct answer).
+     Up to 150 pages / 30 MB; scanned PDFs are not supported.
+   - **By hand**: the topic is optional ("General" if blank).
+3. **Review**: search, filter by status or topic, select and bulk approve or delete. The answer key is
+   visible here and nowhere on the student side.
+4. **Exam settings**: *questions per student* (each student gets their own random subset, balanced
+   across topics; blank means everyone gets every question) and *marks per question* (1 or 2).
+   Scores, results and exports are in marks.
+5. **Publish**. After publishing, questions and settings are frozen.
+
+Topics are labels on questions, not part of the test. A topic is matched ignoring capital letters,
+so "networking" joins "Networking".
+
 ## Where each control lives
 
 | Control | Location |
