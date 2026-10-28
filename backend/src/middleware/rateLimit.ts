@@ -48,3 +48,14 @@ export const aiGenerationLimiter = rateLimit({
   keyGenerator: (req: any) => String(req.lecturer?.id ?? "anonymous"),
   message: { error: "You have reached the hourly limit for AI question generation. Please try again later." },
 });
+
+/** Each PDF run sends several small requests, so this is separate from (and larger than) the topic limiter. */
+export const aiTextLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number(process.env.AI_TEXT_REQUESTS_PER_HOUR ?? 60),
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipFailedRequests: true,
+  keyGenerator: (req: any) => String(req.lecturer?.id ?? "anonymous"),
+  message: { error: "You have reached the hourly limit for AI question generation. Please try again later." },
+});

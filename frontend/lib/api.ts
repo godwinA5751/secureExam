@@ -155,6 +155,15 @@ export const api = {
       { method: "POST", body: JSON.stringify(count ? { count } : {}) }
     ),
 
+  generateFromText: (
+    testId: string,
+    body: { mode: "generate" | "extract"; text: string; topic: string; count?: number }
+  ) =>
+    request<{ mode: string; added: number; duplicatesSkipped: number; withoutAnswer: number }>(
+      `/api/tests/${testId}/generate-from-text`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
   updateSettings: (
     testId: string,
     payload: { questionsPerStudent?: number | null; marksPerQuestion?: 1 | 2 }

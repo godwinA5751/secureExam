@@ -8,7 +8,12 @@ import { Attempt } from "../models/Attempt";
 import { AuthedRequest } from "../middleware/auth";
 import { generateLinkToken, generateAccessCode } from "../utils/token";
 import { parseRosterCsv } from "../services/csvService";
-import { generateQuestionsForTopics } from "../services/llmService";
+import {
+  generateQuestionsForTopics,
+  generateQuestionsFromText,
+  extractQuestionsFromText,
+  GeneratedQuestion,
+} from "../services/llmService";
 import { buildResultsCsv, fileSlug } from "../services/exportService";
 import { Types } from "mongoose";
 import { User } from "../models/User";
@@ -315,6 +320,74 @@ export async function generateQuestions(req: AuthedRequest, res: Response) {
     // A failed run doesn't use up the lecturer's allowance.
     await Test.updateOne({ _id: test._id }, { $inc: { aiGenerationCount: -1 } });
     console.error("[generateQuestions] failed:", e);
+    return res.status(502).json({ error: "Question generation failed. Please try again." });
+  }
+}
+
+const textGenSchema = z
+  .object({
+    mode: z.enum(["generate", "extract"]).default("generate"),
+    text: z.string().min(100).max(16_000),
+    topic: z.string().trim().min(1).max(100),
+    count: z.number().int().min(1).max(15).optional(),
+  })
+  .refine((v) => v.mode === "extract" || v.count !== undefined, { message: "count is required" });
+
+export async function generateFromText(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+  if (rejectIfPublished(test, res)) return;
+
+  const parsed = textGenSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
+  const { mode, text, count } = parsed.data;
+  // Snap to the test's own spelling of the topic so topic balancing treats it as the same one.
+  const topic = test.topics.find((t) => t.toLowerCase() === parsed.data.topic.toLowerCase()) ?? parsed.data.topic;
+
+  const existing = await Question.find({ testId: test._id }).select("text").lean();
+  const room = MAX_QUESTIONS_PER_TEST - existing.length;
+  if (room <= 0) {
+    return res.status(400).json({ error: `A test can have at most ${MAX_QUESTIONS_PER_TEST} questions` });
+  }
+  const seen = new Set(existing.map((q) => duplicateKey(q.text)));
+
+  try {
+    let candidates: GeneratedQuestion[];
+    let found: number;
+    if (mode === "extract") {
+      const result = await extractQuestionsFromText(text, topic);
+      candidates = result.questions;
+      found = result.found;
+    } else {
+      candidates = await generateQuestionsFromText(text, topic, count!);
+      found = candidates.length;
+    }
+
+    // Overlapping chunks and repeated runs can produce the same question twice: keep the first.
+    const fresh: GeneratedQuestion[] = [];
+    let duplicatesSkipped = 0;
+    for (const q of candidates) {
+      const key = duplicateKey(q.text);
+      if (seen.has(key)) {
+        duplicatesSkipped += 1;
+        continue;
+      }
+      seen.add(key);
+      fresh.push(q);
+    }
+
+    const toInsert = fresh.slice(0, room);
+    if (toInsert.length > 0) {
+      await Question.insertMany(toInsert.map((q) => ({ ...q, testId: test._id, approved: false })));
+    }
+    return res.status(201).json({
+      mode,
+      added: toInsert.length,
+      duplicatesSkipped,
+      withoutAnswer: Math.max(0, found - candidates.length),
+    });
+  } catch (e: any) {
+    console.error("[generateFromText] failed:", e);
     return res.status(502).json({ error: "Question generation failed. Please try again." });
   }
 }

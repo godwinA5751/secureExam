@@ -9,6 +9,7 @@ import {
   uploadRoster,
   uploadQuestions,
   generateQuestions,
+  generateFromText,
   listQuestions,
   addManualQuestion,
   updateQuestion,
@@ -22,7 +23,7 @@ import {
   bulkQuestions,
   deleteQuestion
 } from "../controllers/testController";
-import { aiGenerationLimiter } from "../middleware/rateLimit";
+import { aiGenerationLimiter, aiTextLimiter } from "../middleware/rateLimit";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
 const questionUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 } });
@@ -38,6 +39,7 @@ router.get("/", h(listMyTests));
 router.post("/", h(createTest));
 router.post("/:id/roster", upload.single("roster"), h(uploadRoster));
 router.post("/:id/generate-questions", aiGenerationLimiter, h(generateQuestions));
+router.post("/:id/generate-from-text", aiTextLimiter, h(generateFromText));
 router.post("/:id/questions/upload", questionUpload.single("questions"), h(uploadQuestions));
 router.get("/:id/questions", h(listQuestions));
 router.post("/:id/questions/manual", h(addManualQuestion));

@@ -4,3 +4,4 @@ dist/
 .env.*
 !.env.example
 *.log
+frontend/public/pdf.worker.min.mjs

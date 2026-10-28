@@ -5,6 +5,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { useProgressMessage } from "../../lib/useProgressMessage";
 import { invalidateTests, useDebounced } from "../../lib/hooks";
 import Pagination from "../../components/Pagination";
+import PdfQuestions from "../../components/PdfQuestions";
 
 type QuestionRow = {
   id: string;
@@ -207,6 +208,20 @@ export default function CreateTest() {
       setError(err.message);
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function showNewQuestions() {
+    if (!testId) return;
+    const alreadyThere = qStatus === "pending" && qPage === 1 && !qTopicFilter && !qSearch;
+    if (alreadyThere) {
+      await refreshQuestions(testId);
+    } else {
+      changeFilter(() => {
+        setQStatus("pending");
+        setQTopicFilter("");
+        setQSearch("");
+      });
     }
   }
 
@@ -559,6 +574,12 @@ export default function CreateTest() {
                   </ul>
                 )}
               </div>
+
+              <PdfQuestions
+                testId={testId}
+                topics={topics.split(",").map((t) => t.trim()).filter(Boolean)}
+                onChanged={showNewQuestions}
+              />
 
               <form onSubmit={handleAddManual} className="space-y-2 mb-4 bg-slate-50 rounded-lg p-4">
                 <p className="text-xs font-medium text-slate-600 mb-1">Add a question manually</p>
