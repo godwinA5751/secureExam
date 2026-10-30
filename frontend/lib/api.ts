@@ -151,6 +151,7 @@ export const api = {
       rejectedReasons: string[];
       namesAdded: number;
       ignoredNameCount: number;
+      totalRosterSize: number;
     };
   },
 
@@ -198,6 +199,37 @@ export const api = {
       totalPages: number;
       summary: { total: number; published: number; drafts: number; students: number };
     }>(`/api/tests?page=${page}&pageSize=${pageSize}`),
+
+  getTest: (testId: string) =>
+    request<{
+      test: {
+        id: string;
+        title: string;
+        instructions: string;
+        loginWindowStart: string;
+        loginWindowEnd: string;
+        durationMinutes: number;
+        status: string;
+        windowState: "draft" | "scheduled" | "open" | "closed";
+        linkToken: string;
+        requiresAccessCode: boolean;
+        rosterCount: number;
+        questionsPerStudent: number | null;
+        marksPerQuestion: number;
+      };
+    }>(`/api/tests/${testId}`),
+
+  updateTest: (
+    testId: string,
+    payload: {
+      title: string;
+      instructions: string;
+      loginWindowStart: string;
+      loginWindowEnd: string;
+      durationMinutes: number;
+    }
+  ) =>
+    request<{ ok: boolean }>(`/api/tests/${testId}`, { method: "PATCH", body: JSON.stringify(payload) }),
 
   regenerateAccessCode: (testId: string) =>
     request<{ accessCode: string }>(`/api/tests/${testId}/access-code/regenerate`, { method: "POST" }),

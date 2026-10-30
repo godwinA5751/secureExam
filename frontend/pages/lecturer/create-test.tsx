@@ -35,6 +35,13 @@ function downloadTemplate() {
   URL.revokeObjectURL(url);
 }
 
+/** ISO date to the "YYYY-MM-DDTHH:mm" local time that datetime-local inputs use. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function CreateTest() {
   const router = useRouter();
   const [title, setTitle] = useState("");
@@ -109,6 +116,12 @@ export default function CreateTest() {
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const [uploadIssues, setUploadIssues] = useState<string[]>([]);
 
+  const [rosterCount, setRosterCount] = useState(0);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [loadingDraft, setLoadingDraft] = useState(false);
+  const [newCodeBusy, setNewCodeBusy] = useState(false);
+
   const aiMessages = useMemo(() => {
     const topicList = aiTopics.split(",").map((s) => s.trim()).filter(Boolean)
     return [
@@ -146,6 +159,36 @@ export default function CreateTest() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testId, qPage, qStatus, qTopicFilter, debouncedQSearch]);
 
+  // Opened as /lecturer/create-test?testId=...: pick up where the lecturer stopped.
+  useEffect(() => {
+    if (!router.isReady || testId) return;
+    const id = router.query.testId;
+    if (typeof id !== "string") return;
+
+    setLoadingDraft(true);
+    api
+      .getTest(id)
+      .then(({ test }) => {
+        if (test.status === "published") {
+          router.replace("/lecturer/tests"); // only drafts can be continued
+          return;
+        }
+        setTestId(test.id);
+        setTitle(test.title);
+        setStart(toLocalInput(test.loginWindowStart));
+        setEnd(toLocalInput(test.loginWindowEnd));
+        setDuration(test.durationMinutes);
+        setInstructions(test.instructions);
+        setLinkToken(test.linkToken);
+        setRosterCount(test.rosterCount);
+        setPerStudent(test.questionsPerStudent ? String(test.questionsPerStudent) : "");
+        setMarks(test.marksPerQuestion === 2 ? 2 : 1);
+      })
+      .catch((err) => setCreateError(err.message))
+      .finally(() => setLoadingDraft(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady, router.query.testId]);
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (creating) return;
@@ -164,6 +207,8 @@ export default function CreateTest() {
       setTestId(test.id);
       setLinkToken(test.linkToken);
       setAccessCode(accessCode);
+      setRosterCount(0);
+      router.replace({ pathname: router.pathname, query: { testId: test.id } }, undefined, { shallow: true });
       invalidateTests();
     } catch (err: any) {
       if (err instanceof ApiError && err.fieldErrors) {
@@ -175,6 +220,42 @@ export default function CreateTest() {
       setCreating(false);
     }
     
+  }
+
+  async function handleSaveDetails(e: React.FormEvent) {
+    e.preventDefault();
+    if (!testId || savingDetails) return;
+    setCreateError(null);
+    setSavingDetails(true);
+    try {
+      await api.updateTest(testId, {
+        title,
+        loginWindowStart: new Date(start).toISOString(),
+        loginWindowEnd: new Date(end).toISOString(),
+        durationMinutes: duration,
+        instructions: instructions.trim(),
+      });
+      setEditingDetails(false);
+      invalidateTests();
+    } catch (err: any) {
+      setCreateError(err.message);
+    } finally {
+      setSavingDetails(false);
+    }
+  }
+
+  async function handleNewCode() {
+    if (!testId || newCodeBusy) return;
+    setCreateError(null);
+    setNewCodeBusy(true);
+    try {
+      const { accessCode: code } = await api.regenerateAccessCode(testId);
+      setAccessCode(code);
+    } catch (err: any) {
+      setCreateError(err.message);
+    } finally {
+      setNewCodeBusy(false);
+    }
   }
 
   function clearCreateErrors() {
@@ -190,6 +271,7 @@ export default function CreateTest() {
     setPublishError((current) => current === ROSTER_REQUIRED_ERROR ? null : current);
     try {
       const result = await api.uploadRoster(testId, file);
+      setRosterCount(result.totalRosterSize);
       setRosterMsg(
         `${result.acceptedCount} student(s) added (${result.namesAdded} with names), ${result.rejectedCount} row(s) rejected.` + (result.ignoredNameCount > 0 ? ` ${result.ignoredNameCount} name(s) ignored for unsupported characters.` : "")
       );
@@ -470,78 +552,97 @@ export default function CreateTest() {
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
       <div className="flex items-center justify-between mb-6 fixed top-0 left-0 right-0 bg-slate-50 border-b border-slate-200 px-4 py-4 z-10">
-        <h1 className="text-lg font-semibold text-slate-800">Create test</h1>
+        <h1 className="text-lg font-semibold text-slate-800">{testId ? "Edit draft" : "Create test"}</h1>
         <button onClick={() => router.push("/lecturer/tests")} className="text-md text-slate-600 rounded-full w-8 h-8 bg-slate-100 font-bold">
           x
         </button>
       </div>
       <div className="mt-16">
-        {!testId && (
+        {(!testId || editingDetails) && (
           <div className="max-w-2xl mx-auto mt-5 bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div>
-                <label className="block text-sm text-slate-600 mb-1">Title</label>
-                <input value={title} onChange={(e) => {
-                  setTitle(e.target.value);
-                  clearCreateErrors();
-                }} required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                <ErrorMessage message={createFieldErrors.title?.join("; ") ?? null} />
-              </div> 
-              <div className="grid grid-cols-2 gap-3">
+            {loadingDraft && <p className="text-sm text-slate-500">Loading your draft…</p>}
+            {!loadingDraft && (!testId || editingDetails) && (
+              <form onSubmit={testId ? handleSaveDetails : handleCreate} className="space-y-4">
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">Login window start</label>
-                  <input type="datetime-local" value={start} onChange={(e) => {
-                    setStart(e.target.value);
-                    clearCreateErrors();
-                  }} required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                  <ErrorMessage message={createFieldErrors.loginWindowStart?.join("; ") ?? null} />
+                  <label className="block text-sm text-slate-600 mb-1">Title</label>
+                  <input value={title} 
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      clearCreateErrors();
+                    }} required
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" 
+                  />
+                  <ErrorMessage message={createFieldErrors.title?.join("; ") ?? null} />
+                </div> 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-1">Login window start</label>
+                      <input type="datetime-local" value={start} onChange={(e) => {
+                        setStart(e.target.value);
+                        clearCreateErrors();
+                      }} required
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                    <ErrorMessage message={createFieldErrors.loginWindowStart?.join("; ") ?? null} />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-1">Login window end</label>
+                    <input type="datetime-local" value={end} onChange={(e) => {
+                      setEnd(e.target.value);
+                      clearCreateErrors();
+                    }} required
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                    <ErrorMessage message={createFieldErrors.loginWindowEnd?.join("; ") ?? null} />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">Login window end</label>
-                  <input type="datetime-local" value={end} onChange={(e) => {
-                    setEnd(e.target.value);
-                    clearCreateErrors();
-                  }} required
+                  <label className="block text-sm text-slate-600 mb-1">Duration per student (minutes)</label>
+                  <input type="number" min={1} max={480} value={duration}
+                    onChange={(e) => {
+                      setDuration(Number(e.target.value));
+                      clearCreateErrors();
+                    }}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                  <ErrorMessage message={createFieldErrors.loginWindowEnd?.join("; ") ?? null} />
+                  <ErrorMessage message={createFieldErrors.durationMinutes?.join("; ") ?? null} />
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm text-slate-600 mb-1">Duration per student (minutes)</label>
-                <input type="number" min={1} max={480} value={duration}
-                  onChange={(e) => {
-                    setDuration(Number(e.target.value));
-                    clearCreateErrors();
-                  }}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                <ErrorMessage message={createFieldErrors.durationMinutes?.join("; ") ?? null} />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-600 mb-1">
-                  Instructions for students (optional)
-                </label>
-                <textarea
-                  value={instructions}
-                  onChange={(e) => {
-                    setInstructions(e.target.value);
-                    clearCreateErrors();
-                  }}
-                  rows={5}
-                  maxLength={4000}
-                  placeholder="e.g. Closed book. Calculators allowed. Answer all questions."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-                <p className="mt-1 text-xs text-slate-400">{instructions.length}/4000</p>
-                <ErrorMessage message={createFieldErrors.instructions?.join("; ") ?? null} />
-              </div>
-              <button type="submit" disabled={creating}
-                className="w-full rounded-lg bg-slate-900 text-white py-2 text-sm font-medium disabled:opacity-50">
-                {creating ? "Creating..." : "Create test"}
-              </button>
-              <ErrorMessage message={createError} />
-            </form>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    Instructions for students (optional)
+                  </label>
+                  <textarea
+                    value={instructions}
+                    onChange={(e) => {
+                      setInstructions(e.target.value);
+                      clearCreateErrors();
+                    }}
+                    rows={5}
+                    maxLength={4000}
+                    placeholder="e.g. Closed book. Calculators allowed. Answer all questions."
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">{instructions.length}/4000</p>
+                  <ErrorMessage message={createFieldErrors.instructions?.join("; ") ?? null} />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={creating || savingDetails}
+                    className="flex-1 rounded-lg bg-slate-900 text-white py-2 text-sm font-medium disabled:opacity-50"
+                  >
+                    {testId ? (savingDetails ? "Saving..." : "Save changes") : creating ? "Creating..." : "Create test"}
+                  </button>
+                  {testId && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingDetails(false)}
+                      className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+                <ErrorMessage message={createError} />
+              </form>
+            )}
           </div>
         )}
       </div>
@@ -550,10 +651,55 @@ export default function CreateTest() {
         <div className="space-y-6 w-full mx-auto mt-5 bg-white rounded-xl shadow-sm border border-slate-200 p-8 ">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="mt-6">
+              {!editingDetails && (
+                <div className="rounded-lg border border-slate-200 p-4 text-sm mb-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-slate-800">{title}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Opens {new Date(start).toLocaleString()} · closes {new Date(end).toLocaleString()} ·{" "}
+                        {duration} min per student
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingDetails(true);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className="text-xs font-medium text-violet-700 border border-violet-200 rounded-lg px-3 py-1.5 hover:bg-violet-50"
+                    >
+                      Edit details
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
                 <p className="font-medium mb-1">Access code (share once, out-of-band)</p>
-                <p className="font-mono text-lg tracking-widest">{accessCode}</p>
-                <p className="mt-1 text-xs">Won&apos;t be shown again. Distribute alongside the roster, not with the link.</p>
+                {accessCode ? (
+                  <>
+                    <p className="font-mono text-lg tracking-widest">{accessCode}</p>
+                    <p className="mt-1 text-xs">
+                      Won&apos;t be shown again. Distribute alongside the roster, not with the link.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs">
+                      The code was shown once when this test was created and can&apos;t be shown again. If you
+                      didn&apos;t keep it, make a new one (the old code then stops working).
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleNewCode}
+                      disabled={newCodeBusy}
+                      className="mt-2 text-xs font-medium underline disabled:opacity-50"
+                    >
+                      {newCodeBusy ? "Generating..." : "Generate a new access code"}
+                    </button>
+                  </>
+                )}
               </div>
 
               <div className="mt-6">
@@ -567,6 +713,9 @@ export default function CreateTest() {
                 />
                 <ErrorMessage message={rosterError} />
                 {rosterMsg && <p className="text-xs text-slate-500 mt-1">{rosterMsg}</p>}
+                {rosterCount > 0 && (
+                  <p className="text-xs text-slate-500 mt-1">{rosterCount} student(s) on the roster so far.</p>
+                )}
               </div>
 
               <div className="rounded-xl border border-slate-200 p-6 mt-6">

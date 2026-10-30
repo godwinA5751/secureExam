@@ -125,6 +125,15 @@ export default function Tests() {
                   View results
                 </Link>
 
+                {t.windowState === "draft" && (
+                  <Link
+                    href={`/lecturer/create-test?testId=${t.id}`}
+                    className="text-xs font-medium text-violet-700 border border-violet-200 rounded-lg px-3 py-1.5 hover:bg-violet-50"
+                  >
+                    Continue editing
+                  </Link>
+                )}
+
                 <button
                   type="button"
                   onClick={() => setDeleteTarget({ id: t.id, title: t.title })}

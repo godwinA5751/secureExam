@@ -263,6 +263,61 @@ export async function listMyTests(req: AuthedRequest, res: Response) {
   });
 }
 
+export async function getTest(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+
+  return res.json({
+    test: {
+      id: test._id,
+      title: test.title,
+      instructions: test.instructions ?? "",
+      loginWindowStart: test.loginWindowStart,
+      loginWindowEnd: test.loginWindowEnd,
+      durationMinutes: test.durationMinutes,
+      status: test.status,
+      windowState: windowStateOf(test),
+      linkToken: test.linkToken,
+      requiresAccessCode: test.requiresAccessCode,
+      rosterCount: test.allowedStudents.length,
+      questionsPerStudent: test.questionsPerStudent ?? null,
+      marksPerQuestion: test.marksPerQuestion ?? 1,
+    },
+  });
+}
+
+const updateTestSchema = createTestSchema.pick({
+  title: true,
+  instructions: true,
+  loginWindowStart: true,
+  loginWindowEnd: true,
+  durationMinutes: true,
+});
+
+export async function updateTest(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+  if (test.status === "published") {
+    return res.status(400).json({ error: "This test is published, so its details can no longer be changed" });
+  }
+
+  const parsed = updateTestSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid details" });
+
+  const start = new Date(parsed.data.loginWindowStart);
+  const end = new Date(parsed.data.loginWindowEnd);
+  if (end <= start) return res.status(400).json({ error: "loginWindowEnd must be after loginWindowStart" });
+
+  test.title = parsed.data.title;
+  test.instructions = parsed.data.instructions ?? "";
+  test.loginWindowStart = start;
+  test.loginWindowEnd = end;
+  test.durationMinutes = parsed.data.durationMinutes;
+  await test.save();
+
+  return res.json({ ok: true });
+}
+
 /** Questions on a published test are frozen: students may already be sitting it. */
 function rejectIfPublished(test: { status: string }, res: Response): boolean {
   if (test.status === "published") {
@@ -734,6 +789,12 @@ export async function generateLink(req: AuthedRequest, res: Response) {
   }
   if (test.allowedStudents.length === 0) {
     return res.status(400).json({ error: "Upload a roster before publishing" });
+  }
+
+  if (test.loginWindowEnd <= new Date()) {
+    return res.status(400).json({
+      error: "The login window has already ended. Edit the test's dates before publishing.",
+    });
   }
 
   test.status = "published";

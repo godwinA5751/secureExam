@@ -11,6 +11,8 @@ import {
   generateQuestions,
   generateFromText,
   listQuestions,
+  getTest,
+  updateTest,
   addManualQuestion,
   updateQuestion,
   reviewQuestions,
@@ -36,6 +38,8 @@ router.param("id", objectIdParam);
 router.param("questionId", objectIdParam);
 
 router.get("/", h(listMyTests));
+router.get("/:id", h(getTest));
+router.patch("/:id", h(updateTest));
 router.post("/", h(createTest));
 router.post("/:id/roster", upload.single("roster"), h(uploadRoster));
 router.post("/:id/generate-questions", aiGenerationLimiter, h(generateQuestions));
