@@ -15,7 +15,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 export async function runSweep(): Promise<{ finalized: number, rescored: number }> {
   const overdue = await Attempt.find({
     status: "in-progress",
-    deadline: { $lt: new Date() },
+    deadline: { $lte: new Date() },
   }).select("_id");
 
   let finalized = 0;
