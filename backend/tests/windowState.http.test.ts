@@ -63,4 +63,42 @@ describe("test list window state", () => {
     expect(t.windowState).toBe("closed");
     expect(t.window).toBe("opened"); // the stored flag is stale until the 5-minute job runs
   });
+
+  it("stores a scheduled published test as closed until its start time", async () => {
+    await Test.updateOne(
+      { _id: testId },
+      {
+        $set: {
+          status: "published",
+          window: "closed",
+          loginWindowStart: hours(2),
+          loginWindowEnd: hours(5),
+        },
+      }
+    );
+
+    const test = await Test.findById(testId);
+
+    expect(test?.window).toBe("closed");
+    expect((await state()).windowState).toBe("scheduled");
+  });
+
+  it("does not reopen a published test whose login window has ended", async () => {
+    await Test.updateOne(
+      { _id: testId },
+      {
+        $set: {
+          status: "published",
+          window: "closed",
+          loginWindowStart: hours(-5),
+          loginWindowEnd: hours(-2),
+        },
+      }
+    );
+
+    const test = await Test.findById(testId);
+
+    expect(test?.window).toBe("closed");
+    expect((await state()).windowState).toBe("closed");
+  });
 });

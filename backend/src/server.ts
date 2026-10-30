@@ -21,25 +21,49 @@ async function main() {
     Attempt.syncIndexes(),
     RevokedToken.syncIndexes(),
   ]);
-  setInterval(async()=>{
-    try{
+  setInterval(async () => {
+    try {
       const now = new Date();
-      const result = await Test.updateMany(
-        {
-          loginWindowEnd: {$lt: now},
-          window: {$ne: "closed"}
-        },
-        {$set: {window: "closed"}},
-      );
-      if(result.modifiedCount > 0){
-        console.log(`[cron] Auto-closed ${result.modifiedCount} tests`)
-      }
-    } catch(e){
-      console.error("Auto-close cron failed", e)
-    }
-  }, 5*60*1000);
 
-    // Safety net behind the client heartbeat: force-submit overdue attempts.
+      // Close published tests whose login window has ended.
+      const closed = await Test.updateMany(
+        {
+          status: "published",
+          window: "opened",
+          loginWindowEnd: { $lte: now },
+        },
+        {
+          $set: { window: "closed" },
+        }
+      );
+
+      // Open published tests whose scheduled start time has arrived.
+      // The end-time condition prevents already-expired tests from opening.
+      const opened = await Test.updateMany(
+        {
+          status: "published",
+          window: "closed",
+          loginWindowStart: { $lte: now },
+          loginWindowEnd: { $gt: now },
+        },
+        {
+          $set: { window: "opened" },
+        }
+      );
+
+      if (closed.modifiedCount > 0) {
+        console.log(`[cron] Auto-closed ${closed.modifiedCount} tests`);
+      }
+
+      if (opened.modifiedCount > 0) {
+        console.log(`[cron] Auto-opened ${opened.modifiedCount} tests`);
+      }
+    } catch (error) {
+      console.error("[cron] Window synchronization failed", error);
+    }
+  }, 5 * 60 * 1000);
+
+  // Safety net behind the client heartbeat: force-submit overdue attempts.
   // Safe with several server instances: finalizeAttempt claims each attempt atomically.
   const sweepSeconds = Number(process.env.SWEEP_INTERVAL_SECONDS ?? 60);
   if (sweepSeconds > 0) {

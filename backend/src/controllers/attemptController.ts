@@ -33,14 +33,25 @@ export async function getAttemptInfo(req: AuthedRequest, res: Response) {
 
   const now = new Date();
   const attempt = await Attempt.findOne({ testId, studentId }).select("status deadline");
+
   if (attempt) {
-    if (attempt.status === "in-progress" && attempt.deadline > now) {
-      return res.json({ state: "in-progress", deadline: attempt.deadline });
+    res.setHeader("Cache-Control", "no-store");
+
+    if (attempt.status === "in-progress") {
+      if (await finalizeIfPastDeadline(attempt)) {
+        return res.json({ state: "finished" });
+      }
+
+      return res.json({
+        state: "in-progress",
+        deadline: attempt.deadline,
+      });
     }
+
     return res.json({ state: "finished" });
   }
 
-  if (now > test.loginWindowEnd) {
+  if (now >= test.loginWindowEnd) {
     return res.status(403).json({ error: "Login window has closed" });
   }
 
@@ -79,14 +90,28 @@ export async function getOrCreateAttempt(req: AuthedRequest, res: Response) {
   if (!test || test.status !== "published") return res.status(404).json({ error: "Test not available" });
 
   const now = new Date();
-  if (now > test.loginWindowEnd) return res.status(403).json({ error: "Login window has closed" });
+  if (now >= test.loginWindowEnd) return res.status(403).json({ error: "Login window has closed" });
 
   const existing = await Attempt.findOne({ testId, studentId });
+
   if (existing && existing.status !== "in-progress") {
-    return res.status(403).json({ error: "This test has already been submitted" });
+    return res.status(403).json({
+      error: "This test has already been submitted",
+    });
   }
+
   if (existing) {
-    return res.json({ attemptId: existing._id, deadline: existing.deadline, status: existing.status });
+    if (await finalizeIfPastDeadline(existing)) {
+      return res.status(403).json({
+        error: "This test has already been submitted",
+      });
+    }
+
+    return res.json({
+      attemptId: existing._id,
+      deadline: existing.deadline,
+      status: existing.status,
+    });
   }
 
   const pool = await Question.find({ testId, approved: true }).select("_id options topic");
@@ -153,7 +178,7 @@ async function requireActiveAttempt(testId: string, studentId: string, res: Resp
 }
 
 async function finalizeIfPastDeadline(attempt: any): Promise<boolean> {
-  if (new Date() > attempt.deadline && attempt.status === "in-progress") {
+  if (new Date() >= attempt.deadline && attempt.status === "in-progress") {
     await scoreAndSubmit(attempt, "auto-submitted");
     return true;
   }

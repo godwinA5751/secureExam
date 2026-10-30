@@ -117,7 +117,7 @@ export async function studentLogin(req: Request, res: Response) {
   if (!test) return res.status(404).json({ error: "Test link not found" });
 
   const now = new Date();
-  if (now < test.loginWindowStart || now > test.loginWindowEnd) {
+  if (now < test.loginWindowStart || now >= test.loginWindowEnd) {
     return res.status(403).json({ error: "This test's login window is not currently open" });
   }
   if (!test.allowedStudents.includes(idNumber)) {

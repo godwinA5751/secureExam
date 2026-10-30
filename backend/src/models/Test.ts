@@ -162,7 +162,28 @@ const TestSchema = new Schema<ITest>({
   },
 });
 
-TestSchema.index({ loginWindowEnd: 1 }, { partialFilterExpression: { window: "opened" } });// auto-close job
+// Supports the background job that closes opened tests.
+TestSchema.index(
+  { loginWindowEnd: 1 },
+  {
+    partialFilterExpression: {
+      status: "published",
+      window: "opened",
+    },
+  }
+);
+
+// Supports the background job that opens scheduled tests.
+TestSchema.index(
+  { loginWindowStart: 1 },
+  {
+    partialFilterExpression: {
+      status: "published",
+      window: "closed",
+    },
+  }
+);
+
 TestSchema.index({ lecturerId: 1, createdAt: -1 }); 
 
 export const Test = model<ITest>("Test", TestSchema);

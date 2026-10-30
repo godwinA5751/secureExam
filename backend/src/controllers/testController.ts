@@ -798,9 +798,21 @@ export async function generateLink(req: AuthedRequest, res: Response) {
   }
 
   test.status = "published";
-  test.window = "opened";
+  const now = new Date();
+  const effectiveWindow = windowStateOf(test, now);
+
+  // The database supports only "opened" and "closed".
+  // A scheduled test must therefore be stored as closed.
+  test.window = effectiveWindow === "open" ? "opened" : "closed";
+
   await test.save();
-  return res.json({ linkToken: test.linkToken, status: test.status, window: test.window });
+
+  return res.json({
+    linkToken: test.linkToken,
+    status: test.status,
+    window: test.window,
+    windowState: effectiveWindow,
+  });
 }
 
 function nameLookup(test: { rosterNames?: { idNumber: string; name: string }[] }) {

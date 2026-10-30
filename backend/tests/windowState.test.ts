@@ -13,10 +13,41 @@ describe("windowStateOf", () => {
     expect(windowStateOf({ status: "published", loginWindowStart: hours(2), loginWindowEnd: hours(5) }, NOW)).toBe("scheduled");
   });
 
-  it("is open inside the window, including the exact start and end moments", () => {
-    expect(windowStateOf({ status: "published", loginWindowStart: hours(-1), loginWindowEnd: hours(1) }, NOW)).toBe("open");
-    expect(windowStateOf({ status: "published", loginWindowStart: NOW, loginWindowEnd: hours(1) }, NOW)).toBe("open");
-    expect(windowStateOf({ status: "published", loginWindowStart: hours(-1), loginWindowEnd: NOW }, NOW)).toBe("open");
+  it("uses an inclusive start time and exclusive end time", () => {
+    expect(
+      windowStateOf(
+        {
+          status: "published",
+          loginWindowStart: hours(-1),
+          loginWindowEnd: hours(1),
+        },
+        NOW
+      )
+    ).toBe("open");
+
+    // Exactly at the start: open.
+    expect(
+      windowStateOf(
+        {
+          status: "published",
+          loginWindowStart: NOW,
+          loginWindowEnd: hours(1),
+        },
+        NOW
+      )
+    ).toBe("open");
+
+    // Exactly at the end: closed.
+    expect(
+      windowStateOf(
+        {
+          status: "published",
+          loginWindowStart: hours(-1),
+          loginWindowEnd: NOW,
+        },
+        NOW
+      )
+    ).toBe("closed");
   });
 
   it("is closed once the end time has passed", () => {
