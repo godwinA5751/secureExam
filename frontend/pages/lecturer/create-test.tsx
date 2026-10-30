@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import { api } from "../../lib/api";
+import { ApiError, api } from "../../lib/api";
 import { topicFromFileName } from "../../lib/topics";
 import { Skeleton } from "../../components/Skeleton";
 import { useProgressMessage } from "../../lib/useProgressMessage";
@@ -21,6 +21,8 @@ const TEMPLATE_CSV =
   "question,A,B,C,D,correct,topic\r\n" +
   "What does HTTP stand for?,HyperText Transfer Protocol,High Transfer Text Protocol,Hyper Transfer Text Process,Host Transfer Type Protocol,A,Networking\r\n" +
   "Which of these is a relational database?,MongoDB,PostgreSQL,Redis,Neo4j,B,Databases\r\n";
+
+const ROSTER_REQUIRED_ERROR = "Upload a roster before publishing";
 
 function downloadTemplate() {
   // The BOM at the start makes Excel open the file as UTF-8.
@@ -45,7 +47,23 @@ export default function CreateTest() {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [accessCode, setAccessCode] = useState<string | null>(null);
   const [rosterMsg, setRosterMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createFieldErrors, setCreateFieldErrors] = useState<
+    Partial<Record<"title" | "instructions" | "loginWindowStart" | "loginWindowEnd" | "durationMinutes", string[]>>
+  >({});
+  const [rosterError, setRosterError] = useState<string | null>(null);
+  const [questionsUploadError, setQuestionsUploadError] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [manualQuestionError, setManualQuestionError] = useState<string | null>(null);
+  const [manualQuestionFieldErrors, setManualQuestionFieldErrors] = useState<
+    Partial<Record<"text" | "options" | "correctOptionIndex" | "topic", string[]>>
+  >({});
+  const [editQuestionError, setEditQuestionError] = useState<string | null>(null);
+  const [editQuestionFieldErrors, setEditQuestionFieldErrors] = useState<
+    Partial<Record<"text" | "options" | "correctOptionIndex" | "topic", string[]>>
+  >({});
+  const [questionsError, setQuestionsError] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
   const [published, setPublished] = useState(false);
 
   const [questions, setQuestions] = useState<QuestionRow[]>([]);
@@ -107,12 +125,6 @@ export default function CreateTest() {
 
   const aiMessage = useProgressMessage(aiLoading, aiMessages, 2500);
 
-  useEffect(() => {
-    if (!error) return;
-    const t = setTimeout(() => setError(null), 5000);
-    return () => clearTimeout(t);
-  }, [error]);
-
   async function refreshQuestions(id: string) {
     const res = await api.listQuestions(id, {
       page: qPage,
@@ -125,18 +137,19 @@ export default function CreateTest() {
     setQSummary(res.summary);
     setQTotal(res.total);
     setQTotalPages(res.totalPages);
+    setQuestionsError(null);
     if (res.page > res.totalPages) setQPage(res.totalPages); // e.g. after deleting the last item on a page
   }
 
   useEffect(() => {
-    if (testId) refreshQuestions(testId).catch((err) => setError(err.message));
+    if (testId) refreshQuestions(testId).catch((err) => setQuestionsError(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testId, qPage, qStatus, qTopicFilter, debouncedQSearch]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (creating) return;
-    setError(null);
+    clearCreateErrors();
     setCreating(true);
 
     try {
@@ -153,24 +166,38 @@ export default function CreateTest() {
       setAccessCode(accessCode);
       invalidateTests();
     } catch (err: any) {
-      setError(err.message)
+      if (err instanceof ApiError && err.fieldErrors) {
+        setCreateFieldErrors(err.fieldErrors);
+      } else {
+        setCreateError(err.message)
+      }
     } finally {
       setCreating(false);
     }
     
   }
 
+  function clearCreateErrors() {
+    setCreateError(null);
+    setCreateFieldErrors({});
+  }
+
   async function handleRoster(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!testId || !file) return;
+    setRosterError(null);
+    setRosterMsg(null);
+    setPublishError((current) => current === ROSTER_REQUIRED_ERROR ? null : current);
     try {
       const result = await api.uploadRoster(testId, file);
       setRosterMsg(
         `${result.acceptedCount} student(s) added (${result.namesAdded} with names), ${result.rejectedCount} row(s) rejected.` + (result.ignoredNameCount > 0 ? ` ${result.ignoredNameCount} name(s) ignored for unsupported characters.` : "")
       );
+      setPublishError((current) => current === ROSTER_REQUIRED_ERROR ? null : current);
+      setRosterError(null);
       invalidateTests();
     } catch (err: any) {
-      setError(err.message);
+      setRosterError(err.message);
     }
   }
 
@@ -179,7 +206,7 @@ export default function CreateTest() {
     e.target.value = ""; // lets the same file be chosen again after fixing it
     if (!testId || !file) return;
 
-    setError(null);
+    setQuestionsUploadError(null);
     setUploadMsg(null);
     setUploadIssues([]);
     setUploading(true);
@@ -204,7 +231,7 @@ export default function CreateTest() {
         });
       }
     } catch (err: any) {
-      setError(err.message);
+      setQuestionsUploadError(err.message);
     } finally {
       setUploading(false);
     }
@@ -228,10 +255,10 @@ export default function CreateTest() {
     if (!testId) return;
     const topicList = aiTopics.split(",").map((s) => s.trim()).filter(Boolean);
     if (topicList.length === 0) {
-      setError("Enter at least one topic to generate questions about.");
+      setAiError("Enter at least one topic to generate questions about.");
       return;
     }
-    setError(null);
+    setAiError(null);
     setAiNote(null);
     setAiLoading(true);
     try {
@@ -241,7 +268,7 @@ export default function CreateTest() {
       }
       await refreshQuestions(testId);
     } catch (err: any) {
-      setError(err.message);
+      setAiError(err.message);
     } finally {
       setAiLoading(false);
     }
@@ -250,7 +277,7 @@ export default function CreateTest() {
   async function handleAddManual(e: React.FormEvent) {
     e.preventDefault();
     if (!testId) return;
-    setError(null);
+    clearManualQuestionErrors();
     try {
       await api.addManualQuestion(testId, {
         text: qText,
@@ -263,8 +290,17 @@ export default function CreateTest() {
       setQCorrect(0);
       await refreshQuestions(testId);
     } catch (err: any) {
-      setError(err.message);
+      if (err instanceof ApiError && err.fieldErrors) {
+        setManualQuestionFieldErrors(err.fieldErrors);
+      } else {
+        setManualQuestionError(err.message);
+      }
     } 
+  }
+
+  function clearManualQuestionErrors() {
+    setManualQuestionError(null);
+    setManualQuestionFieldErrors({});
   }
 
   function startEditingQuestion(q: QuestionRow) {
@@ -273,7 +309,7 @@ export default function CreateTest() {
     setEditOptions([...q.options]);
     setEditCorrect(q.correctOptionIndex);
     setEditTopic(q.topic);
-    setError(null);
+    clearEditQuestionErrors();
   }
 
   async function handleSaveQuestion() {
@@ -282,7 +318,7 @@ export default function CreateTest() {
       return;
     }
 
-    setError(null);
+    clearEditQuestionErrors();
     setSavingEdit(true);
 
     try {
@@ -327,10 +363,19 @@ export default function CreateTest() {
 
       await refreshQuestions(testId);
     } catch (err: any) {
-      setError(err.message);
+      if (err instanceof ApiError && err.fieldErrors) {
+        setEditQuestionFieldErrors(err.fieldErrors);
+      } else {
+        setEditQuestionError(err.message);
+      }
     } finally {
       setSavingEdit(false);
     }
+  }
+
+  function clearEditQuestionErrors() {
+    setEditQuestionError(null);
+    setEditQuestionFieldErrors({});
   }
 
   function changeFilter(apply: () => void) {
@@ -358,7 +403,7 @@ export default function CreateTest() {
 
   async function handleDeleteQuestion(id: string) {
     if (!testId || !window.confirm("Delete this question? This cannot be undone.")) return;
-    setError(null);
+    setQuestionsError(null);
     try {
       await api.deleteQuestion(testId, id);
       setSelected((prev) => {
@@ -368,7 +413,7 @@ export default function CreateTest() {
       });
       await refreshQuestions(testId);
     } catch (err: any) {
-      setError(err.message);
+      setQuestionsError(err.message);
     }
   }
 
@@ -383,19 +428,20 @@ export default function CreateTest() {
         : `Delete ${ids.length} selected question(s)? This cannot be undone.`;
       if (!window.confirm(message)) return;
     }
-    setError(null);
+    setQuestionsError(null);
     try {
       await api.bulkQuestions(testId, scope ? { action, all: scope } : { action, ids });
       setSelected(new Set());
       await refreshQuestions(testId);
     } catch (err: any) {
-      setError(err.message);
+      setQuestionsError(err.message);
     }
   }
 
   async function handlePublish() {
     if (!testId || publishing) return;
-    setError(null);
+    setPublishError(null);
+    setRosterError(null);
     setPublishing(true);
     try {
       await api.updateSettings(testId, {
@@ -406,7 +452,8 @@ export default function CreateTest() {
       setPublished(true);
       invalidateTests();
     } catch (err: any) {
-      setError(err.message);
+      setPublishError(err.message);
+      if (err.message === ROSTER_REQUIRED_ERROR) setRosterError(err.message);
     }  finally {
       setPublishing(false);
     }
@@ -429,32 +476,47 @@ export default function CreateTest() {
         </button>
       </div>
       <div className="mt-16">
-        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
         {!testId && (
           <div className="max-w-2xl mx-auto mt-5 bg-white rounded-xl shadow-sm border border-slate-200 p-8">
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="block text-sm text-slate-600 mb-1">Title</label>
-                <input value={title} onChange={(e) => setTitle(e.target.value)} required
+                <input value={title} onChange={(e) => {
+                  setTitle(e.target.value);
+                  clearCreateErrors();
+                }} required
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <ErrorMessage message={createFieldErrors.title?.join("; ") ?? null} />
               </div> 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">Login window start</label>
-                  <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required
+                  <input type="datetime-local" value={start} onChange={(e) => {
+                    setStart(e.target.value);
+                    clearCreateErrors();
+                  }} required
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  <ErrorMessage message={createFieldErrors.loginWindowStart?.join("; ") ?? null} />
                 </div>
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">Login window end</label>
-                  <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required
+                  <input type="datetime-local" value={end} onChange={(e) => {
+                    setEnd(e.target.value);
+                    clearCreateErrors();
+                  }} required
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  <ErrorMessage message={createFieldErrors.loginWindowEnd?.join("; ") ?? null} />
                 </div>
               </div>
               <div>
                 <label className="block text-sm text-slate-600 mb-1">Duration per student (minutes)</label>
                 <input type="number" min={1} max={480} value={duration}
-                  onChange={(e) => setDuration(Number(e.target.value))}
+                  onChange={(e) => {
+                    setDuration(Number(e.target.value));
+                    clearCreateErrors();
+                  }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <ErrorMessage message={createFieldErrors.durationMinutes?.join("; ") ?? null} />
               </div>
               <div>
                 <label className="block text-sm text-slate-600 mb-1">
@@ -462,18 +524,23 @@ export default function CreateTest() {
                 </label>
                 <textarea
                   value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
+                  onChange={(e) => {
+                    setInstructions(e.target.value);
+                    clearCreateErrors();
+                  }}
                   rows={5}
                   maxLength={4000}
                   placeholder="e.g. Closed book. Calculators allowed. Answer all questions."
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
                 <p className="mt-1 text-xs text-slate-400">{instructions.length}/4000</p>
+                <ErrorMessage message={createFieldErrors.instructions?.join("; ") ?? null} />
               </div>
               <button type="submit" disabled={creating}
                 className="w-full rounded-lg bg-slate-900 text-white py-2 text-sm font-medium disabled:opacity-50">
                 {creating ? "Creating..." : "Create test"}
               </button>
+              <ErrorMessage message={createError} />
             </form>
           </div>
         )}
@@ -491,12 +558,20 @@ export default function CreateTest() {
 
               <div className="mt-6">
                 <label className="block text-sm text-slate-600 mb-1">Upload roster (CSV: ID number, optional full name)</label>
-                <input type="file" accept=".csv" onChange={handleRoster} className="w-full text-sm" />
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleRoster}
+                  className="w-full text-sm"
+                  aria-invalid={Boolean(rosterError)}
+                />
+                <ErrorMessage message={rosterError} />
                 {rosterMsg && <p className="text-xs text-slate-500 mt-1">{rosterMsg}</p>}
               </div>
 
               <div className="rounded-xl border border-slate-200 p-6 mt-6">
                 <h2 className="text-sm font-semibold text-slate-800 mb-3">Questions</h2>
+                <ErrorMessage message={questionsError} />
 
                 <div className="my-2 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
                   <div className="mb-2">
@@ -506,7 +581,10 @@ export default function CreateTest() {
                     <input
                       id="ai-topics"
                       value={aiTopics}
-                      onChange={(e) => setAiTopics(e.target.value)}
+                      onChange={(e) => {
+                        setAiTopics(e.target.value);
+                        setAiError(null);
+                      }}
                       placeholder="e.g. Networking, Databases, Security"
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
@@ -521,7 +599,10 @@ export default function CreateTest() {
                       min={1}
                       max={100}
                       value={aiCount}
-                      onChange={(e) => setAiCount(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+                      onChange={(e) => {
+                        setAiCount(Math.min(100, Math.max(1, Number(e.target.value) || 1)));
+                        setAiError(null);
+                      }}
                       className="w-20 rounded-lg border border-slate-300 p-2 text-sm"
                     />
                   </div>
@@ -548,6 +629,7 @@ export default function CreateTest() {
                   )}
                 </button>
 
+                <ErrorMessage message={aiError} />
                 {aiNote && <p className="mb-3 text-xs text-amber-700">{aiNote}</p>}
               </div>
 
@@ -582,6 +664,7 @@ export default function CreateTest() {
                   />
                 </div>
                 {uploading && <p className="mt-2 text-xs text-slate-500">Uploading…</p>}
+                <ErrorMessage message={questionsUploadError} />
                 {uploadMsg && <p className="mt-2 text-xs text-slate-700">{uploadMsg}</p>}
                 {uploadIssues.length > 0 && (
                   <ul className="mt-1 list-disc pl-5 text-xs text-amber-700">
@@ -602,14 +685,21 @@ export default function CreateTest() {
 
               <form onSubmit={handleAddManual} className="space-y-2 my-4 bg-slate-50 rounded-lg p-5">
                 <p className="text-xs font-medium text-slate-600 mb-1">Add a question manually</p>
-                <input value={qText} onChange={(e) => setQText(e.target.value)} placeholder="Question text" required
+                <input value={qText} onChange={(e) => {
+                  setQText(e.target.value);
+                  clearManualQuestionErrors();
+                }} placeholder="Question text" required
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <ErrorMessage message={manualQuestionFieldErrors.text?.join("; ") ?? null} />
                 {qOptions.map((opt, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <input
                       type="radio"
                       checked={qCorrect === i}
-                      onChange={() => setQCorrect(i)}
+                      onChange={() => {
+                        setQCorrect(i);
+                        clearManualQuestionErrors();
+                      }}
                       title="Mark as correct answer"
                     />
                     <input
@@ -618,6 +708,7 @@ export default function CreateTest() {
                         const next = [...qOptions];
                         next[i] = e.target.value;
                         setQOptions(next);
+                        clearManualQuestionErrors();
                       }}
                       placeholder={`Option ${i + 1}`}
                       required={i < 2}
@@ -625,11 +716,18 @@ export default function CreateTest() {
                     />
                   </div>
                 ))}
-                <input value={qTopic} onChange={(e) => setQTopic(e.target.value)} placeholder="Topic (optional)"
+                <ErrorMessage message={manualQuestionFieldErrors.options?.join("; ") ?? null} />
+                <ErrorMessage message={manualQuestionFieldErrors.correctOptionIndex?.join("; ") ?? null} />
+                <input value={qTopic} onChange={(e) => {
+                  setQTopic(e.target.value);
+                  clearManualQuestionErrors();
+                }} placeholder="Topic (optional)"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <ErrorMessage message={manualQuestionFieldErrors.topic?.join("; ") ?? null} />
                 <button type="submit" className="w-full rounded-lg bg-slate-800 text-white py-2 text-sm font-medium">
                   Add question
                 </button>
+                <ErrorMessage message={manualQuestionError} />
               </form>
             </div>
 
@@ -730,10 +828,14 @@ export default function CreateTest() {
 
                             <textarea
                               value={editText}
-                              onChange={(e) => setEditText(e.target.value)}
+                              onChange={(e) => {
+                                setEditText(e.target.value);
+                                clearEditQuestionErrors();
+                              }}
                               rows={3}
                               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                             />
+                            <ErrorMessage message={editQuestionFieldErrors.text?.join("; ") ?? null} />
                           </div>
 
                           <div>
@@ -748,7 +850,10 @@ export default function CreateTest() {
                                     type="radio"
                                     name={`correct-${q.id}`}
                                     checked={editCorrect === i}
-                                    onChange={() => setEditCorrect(i)}
+                                    onChange={() => {
+                                      setEditCorrect(i);
+                                      clearEditQuestionErrors();
+                                    }}
                                     title="Mark as correct answer"
                                   />
 
@@ -758,6 +863,7 @@ export default function CreateTest() {
                                       const next = [...editOptions];
                                       next[i] = e.target.value;
                                       setEditOptions(next);
+                                      clearEditQuestionErrors();
                                     }}
                                     className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                     placeholder={`Option ${i + 1}`}
@@ -765,6 +871,8 @@ export default function CreateTest() {
                                 </div>
                               ))}
                             </div>
+                            <ErrorMessage message={editQuestionFieldErrors.options?.join("; ") ?? null} />
+                            <ErrorMessage message={editQuestionFieldErrors.correctOptionIndex?.join("; ") ?? null} />
                           </div>
 
                           <div>
@@ -774,9 +882,13 @@ export default function CreateTest() {
 
                             <input
                               value={editTopic}
-                              onChange={(e) => setEditTopic(e.target.value)}
+                              onChange={(e) => {
+                                setEditTopic(e.target.value);
+                                clearEditQuestionErrors();
+                              }}
                               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                             />
+                            <ErrorMessage message={editQuestionFieldErrors.topic?.join("; ") ?? null} />
                           </div>
 
                           <div className="flex gap-2 pt-1">
@@ -793,7 +905,7 @@ export default function CreateTest() {
                               type="button"
                               onClick={() => {
                                 setEditingQuestionId(null);
-                                setError(null);
+                                clearEditQuestionErrors();
                               }}
                               disabled={savingEdit}
                               className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
@@ -801,6 +913,7 @@ export default function CreateTest() {
                               Cancel
                             </button>
                           </div>
+                          <ErrorMessage message={editQuestionError} />
                         </div>
                       ) : (
                         <>
@@ -926,6 +1039,7 @@ export default function CreateTest() {
             >
               {publishing ? "Publishing..." : "Publish test"}
             </button>
+            <ErrorMessage message={publishError} />
             {approvedCount === 0 && (
               <p className="text-xs text-slate-400 mt-2">Add or approve at least one question to publish.</p>
             )}
@@ -966,6 +1080,11 @@ export default function CreateTest() {
 function studentLoginUrl(linkToken: string): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return `${origin}/student/login?linkToken=${linkToken}`;
+}
+
+function ErrorMessage({ message }: { message: string | null }) {
+  if (!message) return null;
+  return <p role="alert" className="mt-2 text-xs text-red-600">{message}</p>;
 }
 
 function QuestionSkeletonRows({ count }: { count: number }) {

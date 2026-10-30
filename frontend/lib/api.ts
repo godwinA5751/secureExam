@@ -2,10 +2,56 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000";
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  fieldErrors?: Record<string, string[]>;
+  constructor(message: string, status: number, fieldErrors?: Record<string, string[]>) {
     super(message);
     this.status = status;
+    this.fieldErrors = fieldErrors;
   }
+}
+
+function getFieldErrors(error: unknown): Record<string, string[]> | undefined {
+  if (!error || typeof error !== "object") return undefined;
+
+  const fieldErrors = (error as { fieldErrors?: unknown }).fieldErrors;
+  if (!fieldErrors || typeof fieldErrors !== "object") return undefined;
+
+  const result: Record<string, string[]> = {};
+  for (const [field, messages] of Object.entries(fieldErrors)) {
+    if (Array.isArray(messages)) {
+      const strings = messages.filter((message): message is string => typeof message === "string");
+      if (strings.length > 0) result[field] = strings;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string") return error;
+
+  if (error && typeof error === "object") {
+    const details = error as { formErrors?: unknown; fieldErrors?: unknown };
+    const messages: string[] = [];
+
+    if (Array.isArray(details.formErrors)) {
+      messages.push(...details.formErrors.filter((message): message is string => typeof message === "string"));
+    }
+
+    if (details.fieldErrors && typeof details.fieldErrors === "object") {
+      for (const [field, fieldMessages] of Object.entries(details.fieldErrors)) {
+        if (Array.isArray(fieldMessages)) {
+          for (const message of fieldMessages) {
+            if (typeof message === "string") messages.push(`${field}: ${message}`);
+          }
+        }
+      }
+    }
+
+    if (messages.length > 0) return messages.join("; ");
+    return JSON.stringify(error) ?? fallback;
+  }
+
+  return fallback;
 }
 
 type RequestOptions = RequestInit & {
@@ -41,7 +87,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     if (res.status === 401 && !skipAuthRedirect && !isStudentCall) {
       return redirectToLogin();
     }
-    throw new ApiError(body.error ?? `Request failed (${res.status})`, res.status);
+    throw new ApiError(
+      getErrorMessage(body.error, `Request failed (${res.status})`),
+      res.status,
+      getFieldErrors(body.error)
+    );
   }
   return body as T;
 }
@@ -94,7 +144,7 @@ export const api = {
     });
 
     const body = await res.json();
-    if (!res.ok) throw new Error(body.error ?? "Upload failed");
+    if (!res.ok) throw new Error(getErrorMessage(body.error, "Upload failed"));
     return body as {
       acceptedCount: number;
       rejectedCount: number;
@@ -116,7 +166,7 @@ export const api = {
     });
 
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error ?? "Upload failed");
+    if (!res.ok) throw new Error(getErrorMessage(body.error, "Upload failed"));
     return body as { acceptedCount: number; rejectedCount: number; rejectedReasons: string[] };
   },
 
@@ -135,6 +185,9 @@ export const api = {
         title: string;
         status: string;
         window: "opened" | "closed";
+        windowState: "draft" | "scheduled" | "open" | "closed";
+        loginWindowStart: string;
+        loginWindowEnd: string;
         linkToken: string;
         rosterCount: number;
         createdAt: string;
@@ -313,7 +366,7 @@ export const api = {
     if (res.status === 401) return redirectToLogin();
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new ApiError(body.error ?? "Failed to export results", res.status);
+      throw new ApiError(getErrorMessage(body.error, "Failed to export results"), res.status);
     }
 
     const blob = await res.blob();

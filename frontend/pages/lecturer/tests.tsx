@@ -12,6 +12,9 @@ type TestRow = {
   title: string;
   status: string;
   window: "opened" | "closed";
+  windowState: "draft" | "scheduled" | "open" | "closed";
+  loginWindowStart: string;
+  loginWindowEnd: string;
   linkToken: string;
   rosterCount: number;
   createdAt: string;
@@ -131,7 +134,7 @@ export default function Tests() {
                   Delete
                 </button>
 
-                {t.window === "opened" && (
+                {(t.windowState === "scheduled" || t.windowState === "open") && (
                   <>
                     <button
                       onClick={() => handleRegenerate(t.id)}
@@ -148,7 +151,7 @@ export default function Tests() {
                     </button>
                   </>
                 )}
-                <StatusBadge status={t.window} />
+                <StatusBadge status={t.windowState} />
               </div>
 
               {newCode?.testId === t.id && (
@@ -158,8 +161,19 @@ export default function Tests() {
                 </div>
               )}
 
-              {t.window === "opened" && (
+              {(t.windowState === "scheduled" || t.windowState === "open") && (
                 <p className="mt-2 text-xs text-slate-400 break-all font-mono">{studentLoginUrl(t.linkToken)}</p>
+              )}
+
+              {t.windowState === "scheduled" && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Opens {new Date(t.loginWindowStart).toLocaleString()}
+                </p>
+              )}
+              {t.windowState === "open" && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Closes {new Date(t.loginWindowEnd).toLocaleString()}
+                </p>
               )}
             </div>
           ))}
@@ -265,16 +279,23 @@ function TestsSkeleton() {
   );
 }
 
+const BADGE_LABELS: Record<string, string> = {
+  draft: "Draft",
+  scheduled: "Scheduled",
+  open: "Open",
+  closed: "Closed",
+};
+
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    published: "bg-emerald-100 text-emerald-700",
     draft: "bg-amber-100 text-amber-700",
+    scheduled: "bg-sky-100 text-sky-700",
+    open: "bg-emerald-100 text-emerald-700",
     closed: "bg-slate-100 text-slate-600",
-    opened: "bg-emerald-100 text-emerald-700",
   };
   return (
     <span className={`text-xs rounded-full px-2 py-0.5 shrink-0 ${styles[status] ?? "bg-slate-100 text-slate-600"}`}>
-      {status}
+      {BADGE_LABELS[status] ?? status}
     </span>
   );
 }

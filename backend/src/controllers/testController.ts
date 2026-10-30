@@ -20,6 +20,7 @@ import { User } from "../models/User";
 import { parsePaging } from "../utils/paging";
 import { totalMarksOf } from "../services/scoring";
 import { parseQuestionsCsv, duplicateKey } from "../services/questionCsvService";
+import { windowStateOf } from "../services/windowState";
 
 const squashTopic = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -219,6 +220,8 @@ export async function listMyTests(req: AuthedRequest, res: Response) {
           window: 1,
           linkToken: 1,
           createdAt: 1,
+          loginWindowStart: 1,
+          loginWindowEnd: 1,
           rosterCount: { $size: { $ifNull: ["$allowedStudents", []] } },
         },
       },
@@ -245,6 +248,9 @@ export async function listMyTests(req: AuthedRequest, res: Response) {
       title: t.title,
       status: t.status,
       window: t.window,
+      windowState: windowStateOf(t),
+      loginWindowStart: t.loginWindowStart,
+      loginWindowEnd: t.loginWindowEnd,
       linkToken: t.linkToken,
       rosterCount: t.rosterCount,
       createdAt: t.createdAt,
