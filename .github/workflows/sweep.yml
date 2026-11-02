@@ -1,4 +1,6 @@
+
 name: Sweep overdue attempts
+
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -7,12 +9,19 @@ on:
 jobs:
   sweep:
     runs-on: ubuntu-latest
+
     steps:
       - name: Call sweep endpoint
         env:
           API_BASE_URL: ${{ secrets.API_BASE_URL }}
           SWEEP_SECRET: ${{ secrets.SWEEP_SECRET }}
+
         run: |
+          if [ -z "$API_BASE_URL" ] || [ -z "$SWEEP_SECRET" ]; then
+            echo "Required GitHub secrets are missing."
+            exit 1
+          fi
+
           curl --fail --silent --show-error --max-time 60 \
-            -X POST "$API_BASE_URL/internal/sweep" \
+            -X POST "${API_BASE_URL%/}/internal/sweep" \
             -H "x-sweep-secret: $SWEEP_SECRET"
