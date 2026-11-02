@@ -9,8 +9,17 @@ import { errorHandler, notFound } from "./middleware/errorHandler";
 import { requireTrustedOrigin } from "./middleware/originCheck";
 
 const app = express();
+app.use((req, _res, next) => {
+  console.log({
+    ip: req.ip,
+    ips: req.ips,
+    socketAddress: req.socket.remoteAddress,
+    forwardedFor: req.headers["x-forwarded-for"],
+  });
 
-app.set("trust proxy", 1);
+  next();
+});
+
 app.use(securityHeaders);
 app.use(buildCors());
 app.use(requireTrustedOrigin);
