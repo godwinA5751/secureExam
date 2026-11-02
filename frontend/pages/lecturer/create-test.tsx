@@ -1183,14 +1183,17 @@ export default function CreateTest() {
 
             <button
               onClick={handlePublish}
-              disabled={approvedCount === 0 || aiLoading || publishing || tooMany}
+              disabled={approvedCount === 0 || unapprovedCount > 0 || aiLoading || publishing || tooMany}
               className="w-full rounded-lg bg-emerald-700 text-white py-2 text-sm font-medium disabled:opacity-50 mt-5"
             >
               {publishing ? "Publishing..." : "Publish test"}
             </button>
             <ErrorMessage message={publishError} />
-            {approvedCount === 0 && (
-              <p className="text-xs text-slate-400 mt-2">Add or approve at least one question to publish.</p>
+            {unapprovedCount > 0 && (
+              <p className="text-xs text-amber-700 mt-2">
+                {unapprovedCount} question{unapprovedCount === 1 ? "" : "s"} still pending. Approve or delete{" "}
+                {unapprovedCount === 1 ? "it" : "them"} to publish.
+              </p>
             )}
           </div>
         </div>

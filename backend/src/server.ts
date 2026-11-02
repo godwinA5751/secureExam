@@ -6,8 +6,9 @@ import { Question } from "./models/Question";
 import { Attempt } from "./models/Attempt";
 import { runSweep } from "./jobs/sweep";
 import { RevokedToken } from "./models/RevokedToken";
+import { envNumber } from "./utils/env";
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
+const PORT = envNumber("PORT", 4000);
 
 // Last-resort log so a stray rejection never takes the exam server down silently.
 process.on("unhandledRejection", (reason) => {
@@ -65,7 +66,7 @@ async function main() {
 
   // Safety net behind the client heartbeat: force-submit overdue attempts.
   // Safe with several server instances: finalizeAttempt claims each attempt atomically.
-  const sweepSeconds = Number(process.env.SWEEP_INTERVAL_SECONDS ?? 60);
+  const sweepSeconds = envNumber("SWEEP_INTERVAL_SECONDS", 60);
   if (sweepSeconds > 0) {
     let sweeping = false;
     setInterval(async () => {

@@ -1,13 +1,4 @@
-/**
- * Server-side-only call to the LLM provider (Google Gemini) for question
- * generation. The API key never leaves this process; the client never talks
- * to the LLM directly (see Security Addendum Section 7 / 8).
- *
- * Gemini's free tier (Google AI Studio) is generous enough to develop and
- * test this whole flow at no cost. Swap the model/endpoint here later if you
- * move to a paid provider - the rest of the app only depends on
- * GeneratedQuestion[], not on Gemini specifically.
- */
+import { envNumber } from "../utils/env";
 export interface GeneratedQuestion {
   text: string;
   options: string[];
@@ -23,8 +14,8 @@ const GEMINI_MODELS = (process.env.GEMINI_MODELS ?? "gemini-3.5-flash,gemini-3.5
   .map((m) => m.trim())
   .filter(Boolean);
 
-const REQUEST_TIMEOUT_MS = Number(process.env.LLM_REQUEST_TIMEOUT_MS ?? 30_000); // one HTTP call
-const TOTAL_TIMEOUT_MS = Number(process.env.LLM_TOTAL_TIMEOUT_MS ?? 60_000); // whole generation
+const REQUEST_TIMEOUT_MS = envNumber("LLM_REQUEST_TIMEOUT_MS", 90_000); // one HTTP call
+const TOTAL_TIMEOUT_MS = envNumber("LLM_TOTAL_TIMEOUT_MS", 120_000); // whole generation
 
 function geminiUrl(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;

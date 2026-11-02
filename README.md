@@ -54,12 +54,15 @@ database is never touched.
 |---|---|
 | `MONGODB_URI` | MongoDB connection string |
 | `JWT_LECTURER_SECRET`, `JWT_STUDENT_SECRET` | Token signing secrets (16+ chars, different values) |
-| `CORS_ORIGINS` | Comma-separated frontend origins allowed to call the API; also drives the CSRF Origin check |
+| `CLIENT_URL` | Comma-separated frontend origins allowed to call the API; also drives the CSRF Origin check |
 | `COOKIE_SAMESITE` | Optional override (`lax`/`strict`/`none`); default `none` in production, `lax` in development |
 | `SWEEP_SECRET` | Shared secret for `POST /internal/sweep` |
 | `SWEEP_INTERVAL_SECONDS` | In-process sweep interval (default 60, `0` disables) |
 | `LLM_API_KEY`, `GEMINI_MODELS` | Google Gemini key and optional model fallback list |
-| `PORT`, `NODE_ENV` | Server port; set `NODE_ENV=production` when deployed | `LLM_REQUEST_TIMEOUT_MS`, `LLM_TOTAL_TIMEOUT_MS`, `AI_GENERATIONS_PER_TEST`, `AI_GENERATIONS_PER_LECTURER_PER_HOUR` | AI generation timeouts and usage limits (defaults 30000, 60000, 3, 10) |
+| `PORT`, `NODE_ENV` | Server port; set `NODE_ENV=production` when deployed |
+| `MAX_QUESTIONS_PER_TEST` | Most questions one test can hold (default 500) |
+| `AI_MAX_QUESTIONS_PER_RUN`, `AI_GENERATIONS_PER_TEST`, `AI_GENERATIONS_PER_LECTURER_PER_HOUR`, `AI_TEXT_REQUESTS_PER_HOUR` | AI usage limits (defaults 100, 3, 10, 60) |
+| `LLM_REQUEST_TIMEOUT_MS`, `LLM_TOTAL_TIMEOUT_MS` | AI request timeouts (defaults 90000, 120000) |
 
 Frontend: `NEXT_PUBLIC_API_BASE` (API base URL).
 
@@ -112,7 +115,7 @@ so "networking" joins "Networking".
 | Exam-traffic rate limit per student | `attemptLimiter` in `middleware/rateLimit.ts` (not per IP, so a class can share one network) |
 | Second-factor access code | `Test.accessCodeHash` (bcrypt), checked in `authController.studentLogin` |
 | Scoped, short-lived tokens in httpOnly cookies | `utils/jwt.ts`, `utils/authCookies.ts` |
-| CSRF defence | `middleware/originCheck.ts` rejects state-changing requests from origins not in `CORS_ORIGINS` |
+| CSRF defence | `middleware/originCheck.ts` rejects state-changing requests from origins not in `CLIENT_URL` |
 | Async error handling, ID validation | `utils/asyncHandler.ts`, `middleware/validateObjectId.ts`, `middleware/errorHandler.ts` |
 | Published tests are frozen | question add/generate/review are rejected once a test is published |
 | CSV roster hardening | `services/csvService.ts` (size cap, MIME check, formula-injection stripping, ID allow-list, de-dup) |
@@ -123,7 +126,7 @@ so "networking" joins "Networking".
 ## Deployment notes
 
 - Set `NODE_ENV=production` (enables `Secure` cookies) and serve both apps over HTTPS.
-- Set `CORS_ORIGINS` to the exact frontend URL(s), e.g. `https://your-app.vercel.app`.
+- Set `CLIENT_URL` to the exact frontend URL(s), e.g. `https://your-app.vercel.app`.
 - Frontend and backend on **different sites** (e.g. Vercel + Render): leave `COOKIE_SAMESITE` unset.
   Same parent domain: set `COOKIE_SAMESITE=lax`.
 

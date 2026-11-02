@@ -1,4 +1,5 @@
 import rateLimit from "express-rate-limit";
+import { envNumber } from "../utils/env";
 
 /** Per-IP guard against brute force / scraping, layered on top of per-ID lockout in the controller. */
 export const studentLoginLimiter = rateLimit({
@@ -41,7 +42,7 @@ export const attemptLimiter = rateLimit({
 /** Per-lecturer cap on AI question generation runs. Failed runs don't count. */
 export const aiGenerationLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: Number(process.env.AI_GENERATIONS_PER_LECTURER_PER_HOUR ?? 10),
+  max: envNumber("AI_GENERATIONS_PER_LECTURER_PER_HOUR", 10),
   standardHeaders: true,
   legacyHeaders: false,
   skipFailedRequests: true,
@@ -52,7 +53,7 @@ export const aiGenerationLimiter = rateLimit({
 /** Each PDF run sends several small requests, so this is separate from (and larger than) the topic limiter. */
 export const aiTextLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: Number(process.env.AI_TEXT_REQUESTS_PER_HOUR ?? 60),
+  max: envNumber("AI_TEXT_REQUESTS_PER_HOUR", 60),
   standardHeaders: true,
   legacyHeaders: false,
   skipFailedRequests: true,

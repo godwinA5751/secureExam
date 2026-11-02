@@ -21,6 +21,7 @@ import { parsePaging } from "../utils/paging";
 import { totalMarksOf } from "../services/scoring";
 import { parseQuestionsCsv, duplicateKey } from "../services/questionCsvService";
 import { windowStateOf } from "../services/windowState";
+import { envNumber } from "../utils/env";
 
 const squashTopic = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -327,9 +328,10 @@ function rejectIfPublished(test: { status: string }, res: Response): boolean {
   return false;
 }
 
-const MAX_AI_GENERATIONS_PER_TEST = Number(process.env.AI_GENERATIONS_PER_TEST ?? 3);
-const MAX_QUESTIONS_PER_RUN = Number(process.env.AI_MAX_QUESTIONS_PER_RUN ?? 100);
-const MAX_QUESTIONS_PER_TEST = Number(process.env.MAX_QUESTIONS_PER_TEST ?? 500);
+const MAX_AI_GENERATIONS_PER_TEST = envNumber("AI_GENERATIONS_PER_TEST", 3);
+const MAX_QUESTIONS_PER_RUN = envNumber("AI_MAX_QUESTIONS_PER_RUN", 100);
+const MAX_QUESTIONS_PER_TEST = envNumber("MAX_QUESTIONS_PER_TEST", 500);
+
 const generateSchema = z.object({
   topics: z.array(z.string().trim().min(1).max(100)).min(1).max(20),
   count: z.number().int().min(1).max(MAX_QUESTIONS_PER_RUN).optional(),

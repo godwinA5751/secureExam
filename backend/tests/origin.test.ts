@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { requireTrustedOrigin } from "../src/middleware/originCheck";
 
 beforeAll(() => {
-  process.env.CORS_ORIGINS = "https://app.example.com/, http://localhost:3000";
+  process.env.CLIENT_URL = "https://app.example.com/, http://localhost:3000";
 });
 
 function makeApp() {

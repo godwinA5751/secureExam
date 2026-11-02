@@ -16,7 +16,7 @@ export const securityHeaders: RequestHandler = helmet({
 
 /** Single source of truth for which frontend sites may call this API. */
 export function allowedOrigins(): string[] {
-  return (process.env.CORS_ORIGINS ?? "http://localhost:3000")
+  return (process.env.CLIENT_URL ?? "http://localhost:3000")
     .split(",")
     .map((s) => s.trim().replace(/\/$/, ""))
     .filter(Boolean);
