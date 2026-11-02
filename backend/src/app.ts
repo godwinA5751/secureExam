@@ -10,6 +10,7 @@ import { requireTrustedOrigin } from "./middleware/originCheck";
 
 const app = express();
 
+app.set("trust proxy", 1);
 app.use(securityHeaders);
 app.use(buildCors());
 app.use(requireTrustedOrigin);
