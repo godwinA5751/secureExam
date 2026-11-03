@@ -68,3 +68,25 @@ jobs:
 
       - name: Build Next.js application
         run: npm run build
+
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-22.04
+
+    needs:
+      - backend
+      - frontend
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger Render deployment
+        run: |
+          curl --fail --silent --show-error \
+            --request POST \
+            "${{ secrets.RENDER_DEPLOY_HOOK }}"
+
+      - name: Trigger Vercel deployment
+        run: |
+          curl --fail --silent --show-error \
+            "${{ secrets.VERCEL_DEPLOY_HOOK }}"
