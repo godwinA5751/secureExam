@@ -69,6 +69,7 @@ jobs:
       - name: Build Next.js application
         run: npm run build
 
+  
   deploy:
     name: Deploy to production
     runs-on: ubuntu-22.04
@@ -81,12 +82,18 @@ jobs:
 
     steps:
       - name: Trigger Render deployment
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           curl --fail --silent --show-error \
+            --max-time 30 \
             --request POST \
-            "${{ secrets.RENDER_DEPLOY_HOOK }}"
+            "$RENDER_DEPLOY_HOOK"
 
       - name: Trigger Vercel deployment
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
         run: |
           curl --fail --silent --show-error \
-            "${{ secrets.VERCEL_DEPLOY_HOOK }}"
+            --max-time 30 \
+            "$VERCEL_DEPLOY_HOOK"
