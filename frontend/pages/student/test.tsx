@@ -478,7 +478,7 @@ export default function StudentTest() {
           </p>
         )}
       </div>
-      <div className="max-w-2xl mx-auto pt-20 pb-10">
+      <div className="w-full mx-auto py-5">
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
         {focusLossCount === 1 && status === "in-progress" && (
           <div
@@ -493,107 +493,112 @@ export default function StudentTest() {
           </div>
         )}
 
-        {questions[current] && (
-          <section
-            key={questions[current].id}
-            className="bg-white rounded-xl border border-slate-200 p-6"
-          >
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Question {current + 1} of {questions.length} · {marksPer} mark{marksPer === 1 ? "" : "s"}
-            </p>
-            <fieldset className="mt-2">
-              <legend className="text-base font-medium text-slate-800">{questions[current].text}</legend>
-              <div className="mt-4 space-y-2">
-                {questions[current].options.map((opt, idx) => {
-                  const q = questions[current];
-                  const selected = answers[q.id] === idx;
+        <div className="flex flex-col md:gap-2 lg:gap-6 md:flex-row-reverse w-full sm:w-[80%] md:w-[90%] lg:w-[80%] md:p-10 p-5 mx-auto md:mt-20">
+          <div className="md:w-2/3 space-y-6">
+            {questions[current] && (
+              <section
+                key={questions[current].id}
+                className="bg-white rounded-xl border border-slate-200 p-6"
+              >
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Question {current + 1} of {questions.length} · {marksPer} mark{marksPer === 1 ? "" : "s"}
+                </p>
+                <fieldset className="mt-2">
+                  <legend className="text-base font-medium text-slate-800">{questions[current].text}</legend>
+                  <div className="mt-4 space-y-2">
+                    {questions[current].options.map((opt, idx) => {
+                      const q = questions[current];
+                      const selected = answers[q.id] === idx;
+                      return (
+                        <label
+                          key={idx}
+                          className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-sm ${
+                            selected
+                              ? "border-violet-500 bg-violet-50 text-slate-900"
+                              : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name={q.id}
+                            checked={selected}
+                            onChange={() => handleAnswer(q.id, idx)}
+                          />
+                          {opt}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              </section>
+            )}
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => goTo(current - 1)}
+                disabled={current === 0}
+                className="rounded-lg border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => goTo(current + 1)}
+                disabled={current >= questions.length - 1}
+                className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+          <div className="md:w-1/3"> 
+            <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-slate-600">Questions</p>
+                <p className="text-xs text-slate-400">
+                  {answeredCount} of {questions.length} answered
+                </p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {questions.map((q, i) => {
+                  const isCurrent = i === current;
+                  const isAnswered = answers[q.id] !== undefined;
                   return (
-                    <label
-                      key={idx}
-                      className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-sm ${
-                        selected
-                          ? "border-violet-500 bg-violet-50 text-slate-900"
-                          : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => goTo(i)}
+                      aria-label={`Question ${i + 1}, ${isAnswered ? "answered" : "not answered"}`}
+                      aria-current={isCurrent ? "step" : undefined}
+                      className={`h-9 w-9 rounded-lg border text-xs font-medium cursor-pointer ${
+                        isCurrent
+                          ? "border-violet-600 bg-violet-600 text-white"
+                          : isAnswered
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                       }`}
                     >
-                      <input
-                        type="radio"
-                        name={q.id}
-                        checked={selected}
-                        onChange={() => handleAnswer(q.id, idx)}
-                      />
-                      {opt}
-                    </label>
+                      {i + 1}
+                    </button>
                   );
                 })}
               </div>
-            </fieldset>
-          </section>
-        )}
+              <p className="mt-3 text-xs text-slate-400">
+                Purple is the question you are on, green is answered, white is not answered yet.
+              </p>
+            </div>
 
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => goTo(current - 1)}
-            disabled={current === 0}
-            className="rounded-lg border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            onClick={() => goTo(current + 1)}
-            disabled={current >= questions.length - 1}
-            className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Next
-          </button>
+            {submitError && <p className="mt-6 text-sm text-red-600">{submitError}</p>}
+            <button
+              onClick={() => setConfirming(true)}
+              disabled={loading}
+              className="mt-4 w-full rounded-lg bg-slate-900 text-white py-3 text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? "Submitting..." : "Submit test"}
+            </button>
+          </div> 
         </div>
-
-        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-slate-600">Questions</p>
-            <p className="text-xs text-slate-400">
-              {answeredCount} of {questions.length} answered
-            </p>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {questions.map((q, i) => {
-              const isCurrent = i === current;
-              const isAnswered = answers[q.id] !== undefined;
-              return (
-                <button
-                  key={q.id}
-                  type="button"
-                  onClick={() => goTo(i)}
-                  aria-label={`Question ${i + 1}, ${isAnswered ? "answered" : "not answered"}`}
-                  aria-current={isCurrent ? "step" : undefined}
-                  className={`h-9 w-9 rounded-lg border text-xs font-medium cursor-pointer ${
-                    isCurrent
-                      ? "border-violet-600 bg-violet-600 text-white"
-                      : isAnswered
-                        ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-3 text-xs text-slate-400">
-            Purple is the question you are on, green is answered, white is not answered yet.
-          </p>
-        </div>
-
-        {submitError && <p className="mt-6 text-sm text-red-600">{submitError}</p>}
-        <button
-          onClick={() => setConfirming(true)}
-          disabled={loading}
-          className="mt-4 w-full rounded-lg bg-slate-900 text-white py-3 text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? "Submitting..." : "Submit test"}
-        </button>
       </div>
 
       {/* In-page dialog on purpose: a native confirm() would blur the window and auto-submit. */}

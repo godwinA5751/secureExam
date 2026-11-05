@@ -108,6 +108,7 @@ export default function CreateTest() {
 
   const [aiCount, setAiCount] = useState(10);
   const [aiNote, setAiNote] = useState<string | null>(null);
+  const [aiSuccess, setAiSuccess] = useState<string | null>(null);
   const [perStudent, setPerStudent] = useState(""); // "" = every student gets every question
   const [marks, setMarks] = useState<1 | 2>(1);
 
@@ -335,6 +336,7 @@ export default function CreateTest() {
 
   async function handleGenerateAI() {
     if (!testId) return;
+    setAiSuccess(null);
     const topicList = aiTopics.split(",").map((s) => s.trim()).filter(Boolean);
     if (topicList.length === 0) {
       setAiError("Enter at least one topic to generate questions about.");
@@ -346,13 +348,23 @@ export default function CreateTest() {
     try {
       const res = await api.generateQuestions(testId, { topics: topicList, count: aiCount });
       if (res.count < res.requested) {
-        setAiNote(`Generated ${res.count} of ${res.requested}. Some were invalid and skipped.`);
+        setAiNote(`Only ${res.count} of ${res.requested} questions could be generated; invalid responses were skipped.`);
       }
-      await refreshQuestions(testId);
+      setAiSuccess(
+        res.count > 0
+          ? `Successfully generated ${res.count} question${res.count === 1 ? "" : "s"}. Review and approve them below.`
+          : "No questions could be generated. Please try again or try different topics."
+      );
+      try {
+        await refreshQuestions(testId);
+      } catch (err: any) {
+        setQuestionsError(err.message);
+      }
     } catch (err: any) {
       setAiError(err.message);
     } finally {
       setAiLoading(false);
+      setTimeout(() => setAiSuccess(null), 5000); // hide the success message after a while
     }
   }
 
@@ -733,6 +745,8 @@ export default function CreateTest() {
                       onChange={(e) => {
                         setAiTopics(e.target.value);
                         setAiError(null);
+                        setAiNote(null);
+                        setAiSuccess(null);
                       }}
                       placeholder="e.g. Networking, Databases, Security"
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -751,6 +765,8 @@ export default function CreateTest() {
                       onChange={(e) => {
                         setAiCount(Math.min(100, Math.max(1, Number(e.target.value) || 1)));
                         setAiError(null);
+                        setAiNote(null);
+                        setAiSuccess(null);
                       }}
                       className="w-20 rounded-lg border border-slate-300 p-2 text-sm"
                     />
@@ -779,6 +795,11 @@ export default function CreateTest() {
                 </button>
 
                 <ErrorMessage message={aiError} />
+                {aiSuccess && (
+                  <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    {aiSuccess}
+                  </p>
+                )}
                 {aiNote && <p className="mb-3 text-xs text-amber-700">{aiNote}</p>}
               </div>
 
@@ -912,14 +933,14 @@ export default function CreateTest() {
                     )}
                   </div>
 
-                  <div className="flex justify-between items-center">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
                     <input
                       value={qSearch}
                       onChange={(e) => changeFilter(() => setQSearch(e.target.value))}
                       placeholder="Search questions..."
                       className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs max-w-xl"
                     />
-                    <div>
+                    <div className="flex gap-3 flex-wrap items-center">
                       <select
                         value={qStatus}
                         onChange={(e) => changeFilter(() => setQStatus(e.target.value as typeof qStatus))}
