@@ -5,6 +5,7 @@ import { api } from "./api";
 export const keys = {
   me: "me",
   tests: "tests",
+  analytics: "analytics",
   results: (id: string) => `results:${id}`,
 };
 
@@ -26,6 +27,13 @@ export function useTests(page = 1, pageSize = 10) {
   return useSWR([keys.tests, page, pageSize], () => api.listMyTests(page, pageSize), {
     dedupingInterval: 30_000,
     keepPreviousData: true,
+  });
+}
+
+export function useLecturerAnalytics() {
+  return useSWR(keys.analytics, () => api.getLecturerAnalytics(), {
+    revalidateOnFocus: false,
+    dedupingInterval: 30_000,
   });
 }
 

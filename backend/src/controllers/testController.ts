@@ -439,6 +439,273 @@ export async function listMyTests(req: AuthedRequest, res: Response) {
   });
 }
 
+
+export const getLecturerAnalytics = async (
+  req: AuthedRequest,
+  res: Response
+) => {
+  const lecturerId = new Types.ObjectId(req.lecturer!.id);
+  const now = new Date();
+
+  // Use UTC calendar days so the activity chart has consistent date keys.
+  const today = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
+
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 6);
+
+  // Only include tests owned by this lecturer.
+  const [testSummary, testIds] = await Promise.all([
+    Test.aggregate([
+      { $match: { lecturerId } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          published: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "published"] }, 1, 0],
+            },
+          },
+          drafts: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "draft"] }, 1, 0],
+            },
+          },
+          rosterEntries: {
+            $sum: {
+              $size: { $ifNull: ["$allowedStudents", []] },
+            },
+          },
+        },
+      },
+    ]),
+    Test.find({ lecturerId }).distinct("_id"),
+  ]);
+
+  const attemptAnalytics = await Attempt.aggregate([
+    {
+      $match: {
+        testId: { $in: testIds },
+        status: {
+          $in: ["in-progress", "submitted", "auto-submitted"],
+        },
+      },
+    },
+    {
+      $addFields: {
+        possibleMarks: {
+          $cond: [
+            { $gt: [{ $ifNull: ["$totalMarks", 0] }, 0] },
+            "$totalMarks",
+            {
+              $multiply: [
+                {
+                  $size: {
+                    $ifNull: ["$shuffleMap.questionOrder", []],
+                  },
+                },
+                { $ifNull: ["$marksPerQuestion", 1] },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        percentage: {
+          $cond: [
+            {
+              $and: [
+                { $ne: ["$score", null] },
+                { $gt: ["$possibleMarks", 0] },
+              ],
+            },
+            {
+              $multiply: [
+                { $divide: ["$score", "$possibleMarks"] },
+                100,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    },
+    {
+      $facet: {
+        summary: [
+          {
+            $group: {
+              _id: null,
+              inProgress: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "in-progress"] }, 1, 0],
+                },
+              },
+              submitted: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "submitted"] }, 1, 0],
+                },
+              },
+              autoSubmitted: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "auto-submitted"] }, 1, 0],
+                },
+              },
+              averagePercentage: { $avg: "$percentage" },
+            },
+          },
+        ],
+        activity: [
+          {
+            $match: {
+              status: { $in: ["submitted", "auto-submitted"] },
+              submittedAt: { $gte: sevenDaysAgo },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                $dateToString: {
+                  format: "%Y-%m-%d",
+                  date: "$submittedAt",
+                  timezone: "UTC",
+                },
+              },
+              submitted: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "submitted"] }, 1, 0],
+                },
+              },
+              autoSubmitted: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "auto-submitted"] }, 1, 0],
+                },
+              },
+            },
+          },
+          { $sort: { _id: 1 } },
+        ],
+        performance: [
+          {
+            $match: {
+              percentage: { $ne: null },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                $switch: {
+                  branches: [
+                    {
+                      case: { $lt: ["$percentage", 50] },
+                      then: "0-49",
+                    },
+                    {
+                      case: { $lt: ["$percentage", 70] },
+                      then: "50-69",
+                    },
+                    {
+                      case: { $lt: ["$percentage", 85] },
+                      then: "70-84",
+                    },
+                  ],
+                  default: "85-100",
+                },
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ],
+      },
+    },
+  ]);
+
+  const tests = testSummary[0] ?? {
+    total: 0,
+    published: 0,
+    drafts: 0,
+    rosterEntries: 0,
+  };
+
+  const analytics = attemptAnalytics[0] ?? {
+    summary: [],
+    activity: [],
+    performance: [],
+  };
+
+  const attempts = analytics.summary[0] ?? {
+    inProgress: 0,
+    submitted: 0,
+    autoSubmitted: 0,
+    averagePercentage: null,
+  };
+
+  // Fill missing dates with zero so the chart always has seven days.
+  const activityByDate = new Map(
+    analytics.activity.map((item: any) => [
+      item._id,
+      {
+        submitted: item.submitted,
+        autoSubmitted: item.autoSubmitted,
+      },
+    ])
+  );
+
+  const activity = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(sevenDaysAgo);
+    date.setUTCDate(date.getUTCDate() + index);
+
+    const dateKey = date.toISOString().slice(0, 10);
+    const day = activityByDate.get(dateKey) as
+      | { submitted: number; autoSubmitted: number }
+      | undefined;
+
+    return {
+      date: dateKey,
+      submitted: day?.submitted ?? 0,
+      autoSubmitted: day?.autoSubmitted ?? 0,
+      total: (day?.submitted ?? 0) + (day?.autoSubmitted ?? 0),
+    };
+  });
+
+  const performanceCounts = new Map(
+    analytics.performance.map((item: any) => [item._id, item.count])
+  );
+
+  const performanceDistribution = [
+    { range: "0-49", count: performanceCounts.get("0-49") ?? 0 },
+    { range: "50-69", count: performanceCounts.get("50-69") ?? 0 },
+    { range: "70-84", count: performanceCounts.get("70-84") ?? 0 },
+    { range: "85-100", count: performanceCounts.get("85-100") ?? 0 },
+  ];
+
+  return res.json({
+    tests: {
+      total: tests.total,
+      published: tests.published,
+      drafts: tests.drafts,
+      rosterEntries: tests.rosterEntries,
+    },
+    attempts: {
+      inProgress: attempts.inProgress,
+      submitted: attempts.submitted,
+      autoSubmitted: attempts.autoSubmitted,
+      completed: attempts.submitted + attempts.autoSubmitted,
+      averagePercentage:
+        attempts.averagePercentage == null
+          ? null
+          : Number(attempts.averagePercentage.toFixed(1)),
+    },
+    activity,
+    performanceDistribution,
+  });
+};
+
+
 export async function getTest(req: AuthedRequest, res: Response) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;

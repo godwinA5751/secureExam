@@ -7,6 +7,7 @@ import { useProgressMessage } from "../../lib/useProgressMessage";
 import { invalidateTests, useDebounced } from "../../lib/hooks";
 import Pagination from "../../components/Pagination";
 import PdfQuestions from "../../components/PdfQuestions";
+import LecturerLayout from "../../components/LecturerLayout";
 
 type QuestionRow = {
   id: string;
@@ -137,6 +138,8 @@ export default function CreateTest() {
   const [savedRosterError, setSavedRosterError] = useState<string | null>(null);
 
   const [isEditingDraft, setIsEditingDraft] = useState(false);
+
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const selectedSavedRoster = savedRosters.find(
     (roster) => roster.id === selectedSavedRosterId
@@ -717,381 +720,525 @@ export default function CreateTest() {
   const tooMany = perStudentNum !== null && perStudentNum > approvedCount;
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10 px-4">
-      <div className="flex items-center justify-between mb-6 fixed top-0 left-0 right-0 bg-slate-50 border-b border-slate-200 px-4 py-4 z-10">
-        <h1 className="text-lg font-semibold text-slate-800">
-          {isEditingDraft ? "Edit draft" : "Create test"}
-        </h1>
-        <button onClick={() => router.push("/lecturer/tests")} className="text-md text-slate-600 rounded-full w-8 h-8 bg-slate-100 font-bold">
-          x
-        </button>
-      </div>
-      <div className="mt-16">
-        {(!testId || editingDetails) && (
-          <div className="max-w-2xl mx-auto mt-5 bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-            {loadingDraft && <p className="text-sm text-slate-500">Loading your draft…</p>}
-            {!loadingDraft && (!testId || editingDetails) && (
-              <form onSubmit={testId ? handleSaveDetails : handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">Title</label>
-                  <input value={title} 
-                    onChange={(e) => {
-                      setTitle(e.target.value);
-                      clearCreateErrors();
-                    }} required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" 
-                  />
-                  <ErrorMessage message={createFieldErrors.title?.join("; ") ?? null} />
-                </div> 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm text-slate-600 mb-1">Login window start</label>
-                      <input type="datetime-local" value={start} onChange={(e) => {
-                        setStart(e.target.value);
-                        clearCreateErrors();
-                      }} required
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                    <ErrorMessage message={createFieldErrors.loginWindowStart?.join("; ") ?? null} />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-slate-600 mb-1">Login window end</label>
-                    <input type="datetime-local" value={end} onChange={(e) => {
-                      setEnd(e.target.value);
-                      clearCreateErrors();
-                    }} required
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                    <ErrorMessage message={createFieldErrors.loginWindowEnd?.join("; ") ?? null} />
-                  </div>
+    <LecturerLayout>
+      <div className="mx-auto max-w-7xl space-y-7 pb-12">
+        {/* Page heading */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-400">
+              <button
+                type="button"
+                onClick={() => router.push("/lecturer/tests")}
+                className="transition hover:text-blue-600"
+              >
+                All tests
+              </button>
+              <span>/</span>
+              <span className="text-slate-600">
+                {isEditingDraft ? "Edit draft" : "Create test"}
+              </span>
+            </div>
+
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              {isEditingDraft ? "Continue your test" : "Create a new test"}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Set up your exam, add students, prepare questions, and publish when ready.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => router.push("/lecturer/tests")}
+            className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 sm:self-auto"
+          >
+            <span aria-hidden="true">←</span>
+            Back to tests
+          </button>
+        </div>
+
+        {/* Loading draft */}
+        {loadingDraft && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center gap-3">
+              <Spinner />
+              <p className="text-sm text-slate-500">Loading your draft...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Test details: shown before creation or while editing details */}
+        {(!testId || editingDetails) && !loadingDraft && (
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-5 sm:px-7">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-lg text-blue-700">
+                  <span aria-hidden="true">✎</span>
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">Duration per student (minutes)</label>
-                  <input type="number" min={1} max={480} value={duration}
+                  <h2 className="font-semibold text-slate-900">
+                    {testId ? "Test details" : "Start with the basics"}
+                  </h2>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {testId
+                      ? "Update the information for this draft."
+                      : "Give your test a title and configure when students can access it."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form
+              onSubmit={testId ? handleSaveDetails : handleCreate}
+              className="space-y-5 p-5 sm:p-7"
+            >
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Test title
+                </label>
+                <input
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    clearCreateErrors();
+                  }}
+                  required
+                  placeholder="e.g. CSC 301 — Database Management"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+                <ErrorMessage message={createFieldErrors.title?.join("; ") ?? null} />
+              </div>
+
+              <div className="grid gap-5 md:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Login window starts
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={start}
+                    onChange={(e) => {
+                      setStart(e.target.value);
+                      clearCreateErrors();
+                    }}
+                    required
+                    className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                  />
+                  <ErrorMessage message={createFieldErrors.loginWindowStart?.join("; ") ?? null} />
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Login window closes
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={end}
+                    onChange={(e) => {
+                      setEnd(e.target.value);
+                      clearCreateErrors();
+                    }}
+                    required
+                    className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                  />
+                  <ErrorMessage message={createFieldErrors.loginWindowEnd?.join("; ") ?? null} />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Duration per student
+                </label>
+                <div className="relative max-w-xs">
+                  <input
+                    type="number"
+                    min={1}
+                    max={480}
+                    value={duration}
                     onChange={(e) => {
                       setDuration(Number(e.target.value));
                       clearCreateErrors();
                     }}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                  <ErrorMessage message={createFieldErrors.durationMinutes?.join("; ") ?? null} />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    Instructions for students (optional)
-                  </label>
-                  <textarea
-                    value={instructions}
-                    onChange={(e) => {
-                      setInstructions(e.target.value);
-                      clearCreateErrors();
-                    }}
-                    rows={5}
-                    maxLength={4000}
-                    placeholder="e.g. Closed book. Calculators allowed. Answer all questions."
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 pr-24 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                   />
-                  <p className="mt-1 text-xs text-slate-400">{instructions.length}/4000</p>
-                  <ErrorMessage message={createFieldErrors.instructions?.join("; ") ?? null} />
+                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                    minutes
+                  </span>
                 </div>
-                <div className="flex gap-3">
+                <ErrorMessage message={createFieldErrors.durationMinutes?.join("; ") ?? null} />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Instructions for students
+                  <span className="ml-1 font-normal text-slate-400">(optional)</span>
+                </label>
+                <textarea
+                  value={instructions}
+                  onChange={(e) => {
+                    setInstructions(e.target.value);
+                    clearCreateErrors();
+                  }}
+                  rows={4}
+                  maxLength={4000}
+                  placeholder="e.g. Closed book. Calculators allowed. Answer all questions."
+                  className="w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+                <div className="mt-1 flex justify-between">
+                  <ErrorMessage message={createFieldErrors.instructions?.join("; ") ?? null} />
+                  <span className="ml-auto text-xs text-slate-400">
+                    {instructions.length}/4000
+                  </span>
+                </div>
+              </div>
+
+              <ErrorMessage message={createError} />
+
+              <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+                {testId && (
                   <button
-                    type="submit"
-                    disabled={creating || savingDetails}
-                    className="flex-1 rounded-lg bg-slate-900 text-white py-2 text-sm font-medium disabled:opacity-50"
+                    type="button"
+                    onClick={() => setEditingDetails(false)}
+                    className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
                   >
-                    {testId ? (savingDetails ? "Saving..." : "Save changes") : creating ? "Creating..." : "Create test"}
+                    Cancel
                   </button>
-                  {testId && (
-                    <button
-                      type="button"
-                      onClick={() => setEditingDetails(false)}
-                      className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
-                    >
-                      Cancel
-                    </button>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={creating || savingDetails}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {(creating || savingDetails) && <Spinner />}
+                  {testId
+                    ? savingDetails
+                      ? "Saving changes..."
+                      : "Save test details"
+                    : creating
+                      ? "Creating test..."
+                      : "Create test and continue"}
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
+        {/* Main test workspace */}
+        {testId && !published && !editingDetails && (
+          <>
+            {/* Test overview */}
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                <div className="min-w-0">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                      Draft
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      Test setup
+                    </span>
+                  </div>
+                  <h2 className="truncate text-lg font-bold text-slate-900">
+                    {title}
+                  </h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Opens {new Date(start).toLocaleString()} · Closes{" "}
+                    {new Date(end).toLocaleString()} · {duration} minutes per student
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setEditingDetails(true)}
+                  className="shrink-0 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                >
+                  Edit test details
+                </button>
+              </div>
+
+              <div className="border-t border-amber-100 bg-amber-50/70 px-5 py-4 sm:px-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                      <span aria-hidden="true">⌑</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-amber-950">
+                        Student access code
+                      </p>
+                      <p className="mt-0.5 text-xs leading-5 text-amber-800">
+                        Share this separately from the student login link.
+                      </p>
+                    </div>
+                  </div>
+
+                  {accessCode ? (
+                    <div className="flex items-center gap-3 self-start rounded-lg border border-amber-200 bg-white px-4 py-2 sm:self-auto">
+                      <span className="font-mono text-lg font-bold tracking-[0.2em] text-slate-900">
+                        {accessCode}
+                      </span>
+                      <span className="text-[10px] text-amber-700">NEW</span>
+                    </div>
+                  ) : (
+                    <div className="sm:text-right">
+                      <p className="mb-2 max-w-sm text-xs text-amber-800">
+                        The original code is not shown again. Generate a new one if you did not save it.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleNewCode}
+                        disabled={newCodeBusy}
+                        className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {newCodeBusy ? "Generating..." : "Generate new code"}
+                      </button>
+                    </div>
                   )}
                 </div>
                 <ErrorMessage message={createError} />
-              </form>
-            )}
-          </div>
-        )}
-      </div>
+              </div>
+            </section>
 
-      {testId && !published && (
-        <div className="space-y-6 w-full mx-auto mt-5 bg-white rounded-xl shadow-sm border border-slate-200 p-8 ">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="mt-6">
-              {!editingDetails && (
-                <div className="rounded-lg border border-slate-200 p-4 text-sm mb-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-slate-800">{title}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Opens {new Date(start).toLocaleString()} · closes {new Date(end).toLocaleString()} ·{" "}
-                        {duration} min per student
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingDetails(true);
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                      }}
-                      className="text-xs font-medium text-violet-700 border border-violet-200 rounded-lg px-3 py-1.5 hover:bg-violet-50"
-                    >
-                      Edit details
-                    </button>
+            {/* Setup columns */}
+            <div className="grid items-start gap-6 xl:grid-cols-2">
+              {/* Students and roster */}
+              <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-lg text-violet-700">
+                    <span aria-hidden="true">♙</span>
+                  </div>
+                  <div>
+                    <h2 className="font-semibold text-slate-900">Student roster</h2>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Choose a saved roster or upload a CSV containing student IDs and optional names.
+                    </p>
                   </div>
                 </div>
-              )}
 
-              <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
-                <p className="font-medium mb-1">Access code (share once, out-of-band)</p>
-                {accessCode ? (
-                  <>
-                    <p className="font-mono text-lg tracking-widest">{accessCode}</p>
-                    <p className="mt-1 text-xs">
-                      Won&apos;t be shown again. Distribute alongside the roster, not with the link.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-xs">
-                      The code was shown once when this test was created and can&apos;t be shown again. If you
-                      didn&apos;t keep it, make a new one (the old code then stops working).
-                    </p>
-                    <button
-                      type="button"
-                      onClick={handleNewCode}
-                      disabled={newCodeBusy}
-                      className="mt-2 text-xs font-medium underline disabled:opacity-50"
-                    >
-                      {newCodeBusy ? "Generating..." : "Generate a new access code"}
-                    </button>
-                  </>
-                )}
-              </div>
-              {/* Reuse a previously saved roster */}
-              <div className="mt-6 rounded-xl border border-slate-200 p-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Use a saved roster
-                </label>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Use a saved roster
+                  </label>
 
-                {loadingSavedRosters ? (
-                  <p className="text-sm text-slate-500">
-                    Loading your saved rosters...
-                  </p>
-                ) : savedRosters.length > 0 ? (
-                  <>
+                  {loadingSavedRosters ? (
+                    <p className="text-sm text-slate-500">Loading your saved rosters...</p>
+                  ) : savedRosters.length > 0 ? (
                     <select
                       value={selectedSavedRosterId}
                       onChange={(e) => {
                         const rosterId = e.target.value;
-
                         setSelectedSavedRosterId(rosterId);
                         setSavedRosterError(null);
                         setRosterMsg(null);
 
                         if (rosterId) {
                           handleApplySavedRoster(rosterId);
-                        } else {
-                          setRosterCount(0);
                         }
+                        // Clearing the selection does not remove students already added.
                       }}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
                       disabled={applyingSavedRoster}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:opacity-60"
                     >
                       <option value="">Select a saved roster</option>
-
                       {savedRosters.map((roster) => (
                         <option key={roster.id} value={roster.id}>
                           {roster.name} ({roster.studentCount} students)
                         </option>
                       ))}
                     </select>
-                    {applyingSavedRoster && (
-                      <p className="mt-2 text-xs text-cyan-600">
-                        Applying selected roster...
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    You haven't saved any rosters yet. Upload a CSV below and select
-                    "Save this roster for future use" to create one.
-                  </p>
-                )}
+                  ) : (
+                    <p className="text-sm leading-6 text-slate-500">
+                      You have no saved rosters yet. Upload a CSV and choose the save option below to reuse it later.
+                    </p>
+                  )}
 
-                {savedRosterError && (
-                  <p className="mt-2 text-xs text-red-600">
-                    {savedRosterError}
-                  </p>
-                )}
-              </div>
+                  {applyingSavedRoster && (
+                    <p className="mt-2 flex items-center gap-2 text-xs text-blue-600">
+                      <Spinner /> Applying selected roster...
+                    </p>
+                  )}
 
-              <div className="mt-6 rounded-xl border border-slate-200 p-4">
-                <label className="block text-sm text-slate-600 mb-1">
-                  Upload roster (CSV: ID number, optional full name)
-                </label>
-
-                {selectedSavedRoster ? (
-                  <div className="flex items-center gap-3 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-3 my-2">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-100 text-cyan-700">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="22"
-                        height="22"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <path d="M14 2v6h6" />
-                        <path d="M8 13h8M8 17h8M8 9h2" />
-                      </svg>
+                  {selectedSavedRoster && (
+                    <div className="mt-3 flex items-center gap-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                        <span aria-hidden="true">▤</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-blue-900">
+                          {selectedSavedRoster.name}
+                        </p>
+                        <p className="text-xs text-blue-700">
+                          {selectedSavedRoster.studentCount} students in saved roster
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-blue-700">
+                        Selected
+                      </span>
                     </div>
+                  )}
 
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-700">
-                        {selectedSavedRoster.name}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        Saved roster · {selectedSavedRoster.studentCount} students
-                      </p>
-                    </div>
+                  <ErrorMessage message={savedRosterError} />
+                </div>
 
-                    <span className="text-xs font-medium text-cyan-700">
-                      Selected
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <label className="text-sm font-medium text-slate-700">
+                      Upload a roster
+                    </label>
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      CSV file
                     </span>
                   </div>
-                ) : (
-                  <input
-                    key={rosterFileInputKey}
-                    type="file"
-                    accept=".csv"
-                    onChange={handleRosterFileChange}
-                    className="w-full text-sm"
-                    aria-invalid={Boolean(rosterError)}
-                    disabled={uploadingRoster}
-                  />
-                )}
 
-                {rosterFile && (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Selected file: {rosterFile.name}
-                  </p>
-                )}
-
-                {!selectedSavedRosterId && (
-                  <>
-                    <div className="mt-3">
-                      <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={saveRoster}
-                          onChange={(e) => setSaveRoster(e.target.checked)}
-                          className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                          disabled={uploadingRoster}
-                        />
-                        Save this roster for future use
-                      </label>
-
-                      {saveRoster && (
-                        <div className="mt-3">
-                          <label className="block text-sm text-slate-600 mb-1">
-                            Roster name
-                          </label>
-
-                          <input
-                            type="text"
-                            value={rosterName}
-                            onChange={(e) => setRosterName(e.target.value)}
-                            placeholder="e.g. CSC 301 - 300 Level"
-                            maxLength={100}
-                            disabled={uploadingRoster}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                          />
-                        </div>
-                      )}
+                  {selectedSavedRoster ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center">
+                      <p className="text-sm font-medium text-slate-600">
+                        A saved roster is selected
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Clear the selection above to upload a different CSV.
+                      </p>
                     </div>
+                  ) : (
+                    <>
+                      <input
+                        key={rosterFileInputKey}
+                        type="file"
+                        accept=".csv"
+                        onChange={handleRosterFileChange}
+                        disabled={uploadingRoster}
+                        aria-invalid={Boolean(rosterError)}
+                        className="block w-full cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white hover:border-blue-300"
+                      />
 
-                    <button
-                      type="button"
-                      onClick={handleRosterUpload}
-                      disabled={!rosterFile || uploadingRoster}
-                      className="mt-4 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {uploadingRoster ? "Uploading roster..." : "Upload Roster"}
-                    </button>
-                  </>
-                )}
+                      {rosterFile && (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Selected file: {rosterFile.name}
+                        </p>
+                      )}
 
-                <ErrorMessage message={rosterError} />
+                      <div className="mt-4 rounded-xl border border-slate-100 p-3">
+                        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={saveRoster}
+                            onChange={(e) => setSaveRoster(e.target.checked)}
+                            disabled={uploadingRoster}
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          Save this roster for future use
+                        </label>
 
-                {rosterMsg && (
-                  <p className="mt-1 text-xs text-slate-500">{rosterMsg}</p>
-                )}
+                        {saveRoster && (
+                          <div className="mt-3">
+                            <label className="mb-1.5 block text-xs font-medium text-slate-600">
+                              Give your roster a name
+                            </label>
+                            <input
+                              type="text"
+                              value={rosterName}
+                              onChange={(e) => setRosterName(e.target.value)}
+                              placeholder="e.g. CSC 301 - 300 Level"
+                              maxLength={100}
+                              disabled={uploadingRoster}
+                              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                            />
+                          </div>
+                        )}
+                      </div>
 
-                {rosterCount > 0 && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    {rosterCount} student(s) on the roster so far.
-                  </p>
-                )}
-              </div>
+                      <button
+                        type="button"
+                        onClick={handleRosterUpload}
+                        disabled={!rosterFile || uploadingRoster}
+                        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {uploadingRoster && <Spinner />}
+                        {uploadingRoster ? "Uploading roster..." : "Upload student roster"}
+                      </button>
+                    </>
+                  )}
 
-              <div className="rounded-xl border border-slate-200 p-4 mt-6">
-                <h2 className="text-sm font-semibold text-slate-800 mb-3">Questions</h2>
-                <ErrorMessage message={questionsError} />
+                  <ErrorMessage message={rosterError} />
+                  {rosterMsg && (
+                    <p role="status" className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+                      {rosterMsg}
+                    </p>
+                  )}
 
-                <div className="my-2 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
-                  <div className="mb-2">
-                    <label htmlFor="ai-topics" className="mb-1 block text-xs text-slate-600">
-                      Topics (comma-separated)
-                    </label>
-                    <input
-                      id="ai-topics"
-                      value={aiTopics}
-                      onChange={(e) => {
-                        setAiTopics(e.target.value);
-                        setAiError(null);
-                        setAiNote(null);
-                        setAiSuccess(null);
-                      }}
-                      placeholder="e.g. Networking, Databases, Security"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    />
+                  <div className="mt-4 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                    <span className="text-xs font-medium text-slate-500">
+                      Students on this test
+                    </span>
+                    <span className="text-lg font-bold tabular-nums text-slate-900">
+                      {rosterCount}
+                    </span>
                   </div>
-                  <div className="mb-2 flex flex-col items-start gap-1">
-                  <label htmlFor="ai-count" className="text-xs text-slate-600">
-                    Questions to generate
-                  </label>
-                    <input
-                      id="ai-count"
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={aiCount}
-                      onChange={(e) => {
-                        setAiCount(Math.min(100, Math.max(1, Number(e.target.value) || 1)));
-                        setAiError(null);
-                        setAiNote(null);
-                        setAiSuccess(null);
-                      }}
-                      className="w-20 rounded-lg border border-slate-300 p-2 text-sm"
-                    />
+                </div>
+              </section>
+
+              {/* AI question generation */}
+              <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-lg text-violet-700">
+                    <span aria-hidden="true">✧</span>
+                  </div>
+                  <div>
+                    <h2 className="font-semibold text-slate-900">Generate with AI</h2>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Generate draft multiple-choice questions from the topics you provide. You can review them before publishing.
+                    </p>
                   </div>
                 </div>
 
+                <div>
+                  <label htmlFor="ai-topics" className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Topics
+                  </label>
+                  <textarea
+                    id="ai-topics"
+                    value={aiTopics}
+                    onChange={(e) => {
+                      setAiTopics(e.target.value);
+                      setAiError(null);
+                      setAiNote(null);
+                      setAiSuccess(null);
+                    }}
+                    rows={3}
+                    placeholder="e.g. Networking, Databases, Cybersecurity"
+                    className="w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Separate multiple topics with commas.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="ai-count" className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Number of questions
+                  </label>
+                  <input
+                    id="ai-count"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={aiCount}
+                    onChange={(e) => {
+                      setAiCount(Math.min(100, Math.max(1, Number(e.target.value) || 1)));
+                      setAiError(null);
+                      setAiNote(null);
+                      setAiSuccess(null);
+                    }}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 sm:max-w-xs"
+                  />
+                </div>
+
                 <button
+                  type="button"
                   onClick={handleGenerateAI}
                   disabled={aiLoading || !aiTopics.trim()}
-                  className={`w-full rounded-lg border py-2 text-sm font-medium mt-6 flex items-center justify-center gap-2 ${
-                    aiLoading
-                      ? "cursor-wait border-violet-200 bg-violet-50 text-violet-700"
-                      : "border-slate-300 text-slate-700 disabled:opacity-50"
-                  }`}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {aiLoading ? (
                     <>
@@ -1101,463 +1248,747 @@ export default function CreateTest() {
                       </span>
                     </>
                   ) : (
-                    "Generate questions with AI"
+                    <>
+                      <span aria-hidden="true">✧</span>
+                      Generate questions
+                    </>
                   )}
                 </button>
 
                 <ErrorMessage message={aiError} />
                 {aiSuccess && (
-                  <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  <p role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-5 text-emerald-800">
                     {aiSuccess}
                   </p>
                 )}
-                {aiNote && <p className="my-3 text-xs text-amber-700">{aiNote}</p>}
-              </div>
-            </div>
-
-            <div className="mt-6">  
-              <div className="rounded-xl border border-slate-200 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-medium text-slate-800">Upload questions from a file</h3>
-                  <button
-                    type="button"
-                    onClick={downloadTemplate}
-                    className="text-xs font-medium text-violet-600 hover:underline"
-                  >
-                    Download template
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  CSV with a header row: question, A, B, C, D (up to F), correct (a letter), and an optional topic.
-                  Uploaded questions wait for your review. In Excel use Save As, then &quot;CSV UTF-8&quot;.
-                </p>
-                <div className="mt-3 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
-                  <input
-                    value={uploadTopic}
-                    onChange={(e) => setUploadTopic(e.target.value)}
-                    placeholder="Topic for rows without one (default: the file's name)"
-                    className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
-                  />
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    disabled={uploading}
-                    onChange={handleUploadQuestions}
-                    className="text-xs"
-                  />
-                </div>
-                {uploading && <p className="mt-2 text-xs text-slate-500">Uploading…</p>}
-                <ErrorMessage message={questionsUploadError} />
-                {uploadMsg && <p className="mt-2 text-xs text-slate-700">{uploadMsg}</p>}
-                {uploadIssues.length > 0 && (
-                  <ul className="mt-1 list-disc pl-5 text-xs text-amber-700">
-                    {uploadIssues.slice(0, 10).map((issue, i) => (
-                      <li key={i}>{issue}</li>
-                    ))}
-                    {uploadIssues.length > 10 && <li>…and {uploadIssues.length - 10} more</li>}
-                  </ul>
+                {aiNote && (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
+                    {aiNote}
+                  </p>
                 )}
-              </div>
-
-              <PdfQuestions
-                testId={testId}
-                onChanged={showNewQuestions}
-              />
-
-              <form onSubmit={handleAddManual} className="space-y-2 mt-6 bg-slate-50 rounded-lg p-4">
-                <p className="text-xs font-medium text-slate-600 mb-1">Add a question manually</p>
-                <input value={qText} onChange={(e) => {
-                  setQText(e.target.value);
-                  clearManualQuestionErrors();
-                }} placeholder="Question text" required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                <ErrorMessage message={manualQuestionFieldErrors.text?.join("; ") ?? null} />
-                {qOptions.map((opt, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      checked={qCorrect === i}
-                      onChange={() => {
-                        setQCorrect(i);
-                        clearManualQuestionErrors();
-                      }}
-                      title="Mark as correct answer"
-                    />
-                    <input
-                      value={opt}
-                      onChange={(e) => {
-                        const next = [...qOptions];
-                        next[i] = e.target.value;
-                        setQOptions(next);
-                        clearManualQuestionErrors();
-                      }}
-                      placeholder={`Option ${i + 1}`}
-                      required={i < 2}
-                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </div>
-                ))}
-                <ErrorMessage message={manualQuestionFieldErrors.options?.join("; ") ?? null} />
-                <ErrorMessage message={manualQuestionFieldErrors.correctOptionIndex?.join("; ") ?? null} />
-                <input value={qTopic} onChange={(e) => {
-                  setQTopic(e.target.value);
-                  clearManualQuestionErrors();
-                }} placeholder="Topic (optional)"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                <ErrorMessage message={manualQuestionFieldErrors.topic?.join("; ") ?? null} />
-                <button type="submit" className="w-full rounded-lg bg-slate-800 text-white py-2 text-sm font-medium">
-                  Add question
-                </button>
-                <ErrorMessage message={manualQuestionError} />
-              </form>
+              </section>
             </div>
 
-            
-          </div>
-          <div className="pt-5">
-            {qSummary.total > 0 && (
-              <div className="space-y-2 border-t border-slate-200 pt-5">
-                <div className="space-y-2">
+            {/* Add questions */}
+            <section className="space-y-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              <div>
+                <h2 className="font-semibold text-slate-900">Add questions</h2>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Use a CSV file, extract questions from a PDF, or create a question manually.
+                </p>
+              </div>
+
+              <div className="grid items-start gap-6 xl:grid-cols-2">
+                {/* CSV upload */}
+                <div className="rounded-xl border border-slate-200 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-slate-500">
-                      {aiLoading
-                        ? "New questions will appear below"
-                        : `${approvedCount} approved, ${unapprovedCount} pending review (${qSummary.total} total)`}
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      Import from CSV
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={downloadTemplate}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      Download template
+                    </button>
+                  </div>
+
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    Use a header row containing question, A, B, C, D (up to F), correct (a letter), and an optional topic. Imported questions will be pending review.
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    <input
+                      value={uploadTopic}
+                      onChange={(e) => setUploadTopic(e.target.value)}
+                      placeholder="Default topic for rows without one"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-xs outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    />
+
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      disabled={uploading}
+                      onChange={handleUploadQuestions}
+                      className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
+                    />
+
+                    {uploading && (
+                      <p className="flex items-center gap-2 text-xs text-blue-600">
+                        <Spinner /> Uploading questions...
+                      </p>
+                    )}
+
+                    <ErrorMessage message={questionsUploadError} />
+
+                    {uploadMsg && (
+                      <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+                        {uploadMsg}
+                      </p>
+                    )}
+
+                    {uploadIssues.length > 0 && (
+                      <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-amber-700">
+                        {uploadIssues.slice(0, 10).map((issue, i) => (
+                          <li key={i}>{issue}</li>
+                        ))}
+                        {uploadIssues.length > 10 && (
+                          <li>...and {uploadIssues.length - 10} more</li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                {/* PDF upload */}
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-800">
+                    Import from PDF
+                  </h3>
+                  <p className="mb-4 text-xs leading-5 text-slate-500">
+                    Extract questions from a PDF document using the PDF question tool.
+                  </p>
+                  <PdfQuestions testId={testId} onChanged={showNewQuestions} />
+                </div>
+              </div>
+
+              {/* Manual question form */}
+              <form
+                onSubmit={handleAddManual}
+                className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5"
+              >
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-slate-800">
+                    Add a question manually
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Enter the question, its answer options, and select the correct answer.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600">
+                      Question text
+                    </label>
+                    <textarea
+                      value={qText}
+                      onChange={(e) => {
+                        setQText(e.target.value);
+                        clearManualQuestionErrors();
+                      }}
+                      placeholder="Enter your question..."
+                      rows={3}
+                      required
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    />
+                    <ErrorMessage message={manualQuestionFieldErrors.text?.join("; ") ?? null} />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {qOptions.map((opt, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          checked={qCorrect === i}
+                          onChange={() => {
+                            setQCorrect(i);
+                            clearManualQuestionErrors();
+                          }}
+                          title="Mark as correct answer"
+                          aria-label={`Option ${i + 1} is the correct answer`}
+                          className="h-4 w-4 shrink-0 accent-emerald-600"
+                        />
+                        <input
+                          value={opt}
+                          onChange={(e) => {
+                            const next = [...qOptions];
+                            next[i] = e.target.value;
+                            setQOptions(next);
+                            clearManualQuestionErrors();
+                          }}
+                          placeholder={`Option ${i + 1}${i < 2 ? " (required)" : ""}`}
+                          required={i < 2}
+                          className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <ErrorMessage message={manualQuestionFieldErrors.options?.join("; ") ?? null} />
+                  <ErrorMessage message={manualQuestionFieldErrors.correctOptionIndex?.join("; ") ?? null} />
+
+                  <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-slate-600">
+                        Topic
+                      </label>
+                      <input
+                        value={qTopic}
+                        onChange={(e) => {
+                          setQTopic(e.target.value);
+                          clearManualQuestionErrors();
+                        }}
+                        placeholder="e.g. Database Management"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                      />
+                      <ErrorMessage message={manualQuestionFieldErrors.topic?.join("; ") ?? null} />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="self-end rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    >
+                      Add question
+                    </button>
+                  </div>
+
+                  <ErrorMessage message={manualQuestionError} />
+                </div>
+              </form>
+            </section>
+
+            {/* Question bank */}
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 p-5 sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="font-semibold text-slate-900">Question bank</h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Review, edit, approve, or remove questions before publishing.
                     </p>
-                    {!aiLoading && unapprovedCount > 0 && (
-                      <div className="flex gap-3">
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 sm:min-w-[330px]">
+                    <div className="rounded-xl bg-slate-50 px-3 py-2 text-center">
+                      <p className="text-lg font-bold tabular-nums text-slate-900">
+                        {qSummary.total}
+                      </p>
+                      <p className="text-[10px] font-medium text-slate-500">Total</p>
+                    </div>
+                    <div className="rounded-xl bg-emerald-50 px-3 py-2 text-center">
+                      <p className="text-lg font-bold tabular-nums text-emerald-700">
+                        {approvedCount}
+                      </p>
+                      <p className="text-[10px] font-medium text-emerald-700">Approved</p>
+                    </div>
+                    <div className="rounded-xl bg-amber-50 px-3 py-2 text-center">
+                      <p className="text-lg font-bold tabular-nums text-amber-700">
+                        {unapprovedCount}
+                      </p>
+                      <p className="text-[10px] font-medium text-amber-700">Pending</p>
+                    </div>
+                  </div>
+                </div>
+                <ErrorMessage message={questionsError} />
+              </div>
+
+              {qSummary.total > 0 ? (
+                <div className="space-y-4 p-5 sm:p-6">
+                  {aiLoading && (
+                    <p className="text-xs text-violet-600">
+                      New questions will appear here when generation finishes.
+                    </p>
+                  )}
+
+                  {unapprovedCount > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3">
+                      <p className="text-xs text-amber-800">
+                        {unapprovedCount} question{unapprovedCount === 1 ? "" : "s"} need your review.
+                      </p>
+                      <div className="flex flex-wrap gap-3">
                         <button
                           type="button"
                           onClick={() => handleBulk("approve", "pending")}
-                          className="text-xs font-medium text-emerald-700 underline"
+                          className="text-xs font-semibold text-emerald-700 hover:underline"
                         >
                           Approve all pending
                         </button>
                         <button
                           type="button"
                           onClick={() => handleBulk("delete", "pending")}
-                          className="text-xs font-medium text-red-600 underline"
+                          className="text-xs font-semibold text-red-600 hover:underline"
                         >
                           Delete all pending
                         </button>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
                     <input
                       value={qSearch}
                       onChange={(e) => changeFilter(() => setQSearch(e.target.value))}
                       placeholder="Search questions..."
-                      className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs max-w-xl"
+                      className="min-w-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                     />
-                    <div className="flex gap-3 flex-wrap items-center">
-                      <select
-                        value={qStatus}
-                        onChange={(e) => changeFilter(() => setQStatus(e.target.value as typeof qStatus))}
-                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs w-100 sm:w-auto"
-                      >
-                        <option value="all">All</option>
-                        <option value="approved">Approved</option>
-                        <option value="pending">Pending</option>
-                      </select>
-                      <select
-                        value={qTopicFilter}
-                        onChange={(e) => changeFilter(() => setQTopicFilter(e.target.value))}
-                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs w-100 sm:w-auto"
-                      >
-                        <option value="">All topics</option>
-                        {qSummary.topics.map((t) => (
-                          <option key={t.topic} value={t.topic}>
-                            {t.topic} ({t.count})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+
+                    <select
+                      value={qStatus}
+                      onChange={(e) => changeFilter(() => setQStatus(e.target.value as typeof qStatus))}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-600 outline-none focus:border-blue-500"
+                    >
+                      <option value="all">All statuses</option>
+                      <option value="approved">Approved</option>
+                      <option value="pending">Pending</option>
+                    </select>
+
+                    <select
+                      value={qTopicFilter}
+                      onChange={(e) => changeFilter(() => setQTopicFilter(e.target.value))}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-600 outline-none focus:border-blue-500"
+                    >
+                      <option value="">All topics</option>
+                      {qSummary.topics.map((t) => (
+                        <option key={t.topic} value={t.topic}>
+                          {t.topic} ({t.count})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3 text-xs">
-                    <label className="flex items-center gap-1.5 text-slate-600">
-                      <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectPage} />
+                  <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 pb-4 text-xs">
+                    <label className="flex cursor-pointer items-center gap-2 text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={allOnPageSelected}
+                        onChange={toggleSelectPage}
+                        className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                      />
                       Select this page
                     </label>
+
                     {selected.size > 0 && (
                       <>
-                        <span className="text-slate-400">{selected.size} selected</span>
-                        <button type="button" onClick={() => handleBulk("approve")} className="font-medium text-emerald-700 hover:underline">
+                        <span className="text-slate-400">
+                          {selected.size} selected
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleBulk("approve")}
+                          className="font-semibold text-emerald-700 hover:underline"
+                        >
                           Approve selected
                         </button>
-                        <button type="button" onClick={() => handleBulk("delete")} className="font-medium text-red-600 hover:underline">
+                        <button
+                          type="button"
+                          onClick={() => handleBulk("delete")}
+                          className="font-semibold text-red-600 hover:underline"
+                        >
                           Delete selected
                         </button>
-                        <button type="button" onClick={() => setSelected(new Set())} className="text-slate-500 hover:underline">
-                          Clear
+                        <button
+                          type="button"
+                          onClick={() => setSelected(new Set())}
+                          className="text-slate-500 hover:underline"
+                        >
+                          Clear selection
                         </button>
                       </>
                     )}
                   </div>
-                </div>
-                <ul className=" border border-slate-200 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3 p-3">
-                  {questions.map((q) => (
-                    <li key={q.id} className="p-3 text-sm border border-slate-200 rounded-lg bg-slate-50">
-                      {editingQuestionId === q.id ? (
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">
-                              Question
-                            </label>
 
-                            <textarea
-                              value={editText}
-                              onChange={(e) => {
-                                setEditText(e.target.value);
-                                clearEditQuestionErrors();
-                              }}
-                              rows={3}
-                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                            />
-                            <ErrorMessage message={editQuestionFieldErrors.text?.join("; ") ?? null} />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">
-                              Options
-                            </label>
-
-                            <div className="space-y-2">
-                              {editOptions.map((option, i) => (
-                                <div key={i} className="flex items-center gap-2">
-                                  <input
-                                    type="radio"
-                                    name={`correct-${q.id}`}
-                                    checked={editCorrect === i}
-                                    onChange={() => {
-                                      setEditCorrect(i);
-                                      clearEditQuestionErrors();
-                                    }}
-                                    title="Mark as correct answer"
-                                  />
-
-                                  <input
-                                    value={option}
-                                    onChange={(e) => {
-                                      const next = [...editOptions];
-                                      next[i] = e.target.value;
-                                      setEditOptions(next);
-                                      clearEditQuestionErrors();
-                                    }}
-                                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                    placeholder={`Option ${i + 1}`}
-                                  />
-                                </div>
-                              ))}
+                  <ul className="grid gap-3 lg:grid-cols-2">
+                    {questions.map((q) => (
+                      <li
+                        key={q.id}
+                        className="min-w-0 rounded-xl border border-slate-200 p-4 transition hover:border-slate-300"
+                      >
+                        {editingQuestionId === q.id ? (
+                          <div className="space-y-3">
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-slate-600">
+                                Question
+                              </label>
+                              <textarea
+                                value={editText}
+                                onChange={(e) => {
+                                  setEditText(e.target.value);
+                                  clearEditQuestionErrors();
+                                }}
+                                rows={3}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                              />
+                              <ErrorMessage message={editQuestionFieldErrors.text?.join("; ") ?? null} />
                             </div>
-                            <ErrorMessage message={editQuestionFieldErrors.options?.join("; ") ?? null} />
-                            <ErrorMessage message={editQuestionFieldErrors.correctOptionIndex?.join("; ") ?? null} />
+
+                            <div>
+                              <p className="mb-2 text-xs font-medium text-slate-600">
+                                Answer options — select the correct answer
+                              </p>
+                              <div className="space-y-2">
+                                {editOptions.map((option, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <input
+                                      type="radio"
+                                      name={`correct-${q.id}`}
+                                      checked={editCorrect === i}
+                                      onChange={() => {
+                                        setEditCorrect(i);
+                                        clearEditQuestionErrors();
+                                      }}
+                                      className="h-4 w-4 accent-emerald-600"
+                                    />
+                                    <input
+                                      value={option}
+                                      onChange={(e) => {
+                                        const next = [...editOptions];
+                                        next[i] = e.target.value;
+                                        setEditOptions(next);
+                                        clearEditQuestionErrors();
+                                      }}
+                                      placeholder={`Option ${i + 1}`}
+                                      className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              <ErrorMessage message={editQuestionFieldErrors.options?.join("; ") ?? null} />
+                              <ErrorMessage message={editQuestionFieldErrors.correctOptionIndex?.join("; ") ?? null} />
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-slate-600">
+                                Topic
+                              </label>
+                              <input
+                                value={editTopic}
+                                onChange={(e) => {
+                                  setEditTopic(e.target.value);
+                                  clearEditQuestionErrors();
+                                }}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                              />
+                              <ErrorMessage message={editQuestionFieldErrors.topic?.join("; ") ?? null} />
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={handleSaveQuestion}
+                                disabled={savingEdit}
+                                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {savingEdit ? "Saving..." : "Save changes"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingQuestionId(null);
+                                  clearEditQuestionErrors();
+                                }}
+                                disabled={savingEdit}
+                                className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            <ErrorMessage message={editQuestionError} />
                           </div>
-
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">
-                              Topic
-                            </label>
-
-                            <input
-                              value={editTopic}
-                              onChange={(e) => {
-                                setEditTopic(e.target.value);
-                                clearEditQuestionErrors();
-                              }}
-                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                            />
-                            <ErrorMessage message={editQuestionFieldErrors.topic?.join("; ") ?? null} />
-                          </div>
-
-                          <div className="flex gap-2 pt-1">
-                            <button
-                              type="button"
-                              onClick={handleSaveQuestion}
-                              disabled={savingEdit}
-                              className="rounded-lg bg-slate-800 text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-                            >
-                              {savingEdit ? "Saving..." : "Save changes"}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingQuestionId(null);
-                                clearEditQuestionErrors();
-                              }}
-                              disabled={savingEdit}
-                              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                          <ErrorMessage message={editQuestionError} />
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex items-start justify-between gap-2">
-                            <label className="flex items-start gap-2 text-slate-800">
+                        ) : (
+                          <>
+                            <div className="flex items-start gap-3">
                               <input
                                 type="checkbox"
                                 checked={selected.has(q.id)}
                                 onChange={() => toggleSelect(q.id)}
-                                className="mt-1"
                                 aria-label="Select question"
+                                className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 accent-blue-600"
                               />
-                              <span>{q.text}</span>
-                            </label>
 
-                            <span
-                              className={`text-xs shrink-0 rounded-full px-2 py-0.5 ${
-                                q.approved
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : "bg-amber-100 text-amber-700"
-                              }`}
-                            >
-                              {q.approved ? "approved" : "pending"}
-                            </span>
-                          </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
+                                    q.approved
+                                      ? "bg-emerald-50 text-emerald-700"
+                                      : "bg-amber-50 text-amber-700"
+                                  }`}>
+                                    {q.approved ? "Approved" : "Pending review"}
+                                  </span>
+                                  {q.topic && (
+                                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500">
+                                      {q.topic}
+                                    </span>
+                                  )}
+                                </div>
 
-                          <ul className="mt-1 text-xs text-slate-500 list-disc list-inside">
-                            {q.options.map((o, i) => (
-                              <li
-                                key={i}
-                                className={
-                                  i === q.correctOptionIndex
-                                    ? "text-emerald-700 font-medium"
-                                    : ""
-                                }
-                              >
-                                {o}
-                              </li>
-                            ))}
-                          </ul>
+                                <p className="mt-3 whitespace-pre-wrap text-sm font-medium leading-6 text-slate-800">
+                                  {q.text}
+                                </p>
 
-                          <div className="mt-2 flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => startEditingQuestion(q)}
-                              className="text-xs font-medium text-violet-700 hover:underline"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteQuestion(q.id)}
-                              className="text-xs font-medium text-red-600 hover:underline"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </li>
-                  ))}
-                  {aiLoading && <QuestionSkeletonRows count={4} />}
-                </ul>
-                {!aiLoading && questions.length === 0 && (
-                  <p className="py-3 text-center text-xs text-slate-400">No questions match your filters.</p>
-                )}
-                <Pagination
-                  page={qPage}
-                  totalPages={qTotalPages}
-                  total={qTotal}
-                  pageSize={Q_PAGE_SIZE}
-                  onPageChange={setQPage}
-                />
-              </div>
-            )}
+                                <ol className="mt-3 space-y-2">
+                                  {q.options.map((o, i) => (
+                                    <li
+                                      key={i}
+                                      className={`flex items-start gap-2 text-xs leading-5 ${
+                                        i === q.correctOptionIndex
+                                          ? "font-semibold text-emerald-700"
+                                          : "text-slate-500"
+                                      }`}
+                                    >
+                                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] ${
+                                        i === q.correctOptionIndex
+                                          ? "bg-emerald-100 text-emerald-700"
+                                          : "bg-slate-100 text-slate-500"
+                                      }`}>
+                                        {String.fromCharCode(65 + i)}
+                                      </span>
+                                      <span>{o}</span>
+                                      {i === q.correctOptionIndex && (
+                                        <span className="ml-auto shrink-0 text-[10px]">
+                                          Correct
+                                        </span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ol>
 
-            <div className="border-t border-slate-200 pt-5 mt-5">
-              <h2 className="text-sm font-semibold text-slate-800 mb-3">Exam settings</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="per-student" className="block text-xs text-slate-600 mb-1">
-                    Questions per student
-                  </label>
-                  <input
-                    id="per-student"
-                    type="number"
-                    min={1}
-                    value={perStudent}
-                    placeholder={`All (${approvedCount})`}
-                    onChange={(e) => setPerStudent(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                <div className="mt-4 flex gap-4 border-t border-slate-100 pt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditingQuestion(q)}
+                                    className="text-xs font-semibold text-blue-600 hover:underline"
+                                  >
+                                    Edit question
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteQuestion(q.id)}
+                                    className="text-xs font-semibold text-red-600 hover:underline"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </li>
+                    ))}
+
+                    {aiLoading && <QuestionSkeletonRows count={4} />}
+                  </ul>
+
+                  {!aiLoading && questions.length === 0 && (
+                    <p className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                      No questions match your filters.
+                    </p>
+                  )}
+
+                  <Pagination
+                    page={qPage}
+                    totalPages={qTotalPages}
+                    total={qTotal}
+                    pageSize={Q_PAGE_SIZE}
+                    onPageChange={setQPage}
                   />
                 </div>
-                <div>
-                  <label htmlFor="marks" className="block text-xs text-slate-600 mb-1">
-                    Marks per question
-                  </label>
-                  <select
-                    id="marks"
-                    value={marks}
-                    onChange={(e) => setMarks(Number(e.target.value) as 1 | 2)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    <option value={1}>1 mark</option>
-                    <option value={2}>2 marks</option>
-                  </select>
+              ) : (
+                <div className="px-5 py-12 text-center sm:px-6">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-2xl text-slate-400">
+                    ?
+                  </div>
+                  <h3 className="mt-4 text-sm font-semibold text-slate-800">
+                    Your question bank is empty
+                  </h3>
+                  <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-500">
+                    Generate questions with AI, import them from a CSV or PDF, or add them manually. Your questions will appear here.
+                  </p>
+                </div>
+              )}
+            </section>
+
+            {/* Exam settings and publishing */}
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 p-5 sm:p-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-lg text-emerald-700">
+                    <span aria-hidden="true">✓</span>
+                  </div>
+                  <div>
+                    <h2 className="font-semibold text-slate-900">Exam settings</h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Decide how questions and marks are distributed to students.
+                    </p>
+                  </div>
                 </div>
               </div>
-              <p className={`mt-2 text-xs ${tooMany ? "text-red-600" : "text-slate-500"}`}>
-                {approvedCount === 0
-                  ? "Approve some questions to see how big each student's exam will be."
-                  : tooMany
-                    ? `Only ${approvedCount} questions are approved, so each student cannot get ${perStudentNum}.`
-                    : `Pool: ${approvedCount} approved. Each student gets ${examSize} question${examSize === 1 ? "" : "s"}, ${examSize * marks} marks in total.`}
+
+              <div className="space-y-5 p-5 sm:p-6">
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="per-student" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Questions per student
+                    </label>
+                    <input
+                      id="per-student"
+                      type="number"
+                      min={1}
+                      value={perStudent}
+                      placeholder={`All (${approvedCount})`}
+                      onChange={(e) => setPerStudent(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    />
+                    <p className="mt-1.5 text-xs text-slate-400">
+                      Leave blank to give every student all approved questions.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label htmlFor="marks" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Marks per question
+                    </label>
+                    <select
+                      id="marks"
+                      value={marks}
+                      onChange={(e) => setMarks(Number(e.target.value) as 1 | 2)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    >
+                      <option value={1}>1 mark</option>
+                      <option value={2}>2 marks</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className={`rounded-xl border p-4 ${
+                  tooMany
+                    ? "border-red-200 bg-red-50"
+                    : "border-blue-100 bg-blue-50/70"
+                }`}>
+                  <p className={`text-sm font-semibold ${
+                    tooMany ? "text-red-800" : "text-blue-900"
+                  }`}>
+                    Exam summary
+                  </p>
+                  <p className={`mt-1 text-xs leading-5 ${
+                    tooMany ? "text-red-700" : "text-blue-800"
+                  }`}>
+                    {approvedCount === 0
+                      ? "Approve some questions to see the exam summary."
+                      : tooMany
+                        ? `Only ${approvedCount} questions are approved. Each student cannot receive ${perStudentNum} questions.`
+                        : `Question pool: ${approvedCount} approved. Each student receives ${examSize} question${examSize === 1 ? "" : "s"}, worth ${examSize * marks} marks in total.`}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  {rosterCount === 0 && (
+                    <p className="text-xs text-amber-700">
+                      Add a student roster before publishing.
+                    </p>
+                  )}
+                  {unapprovedCount > 0 && (
+                    <p className="text-xs text-amber-700">
+                      {unapprovedCount} question{unapprovedCount === 1 ? "" : "s"} still pending. Approve or delete{" "}
+                      {unapprovedCount === 1 ? "it" : "them"} before publishing.
+                    </p>
+                  )}
+                  <ErrorMessage message={publishError} />
+                </div>
+
+                <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="max-w-lg text-xs leading-5 text-slate-500">
+                    Publishing makes the test available to students during the login window. Review your roster, questions, and settings before continuing.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handlePublish}
+                    disabled={
+                      approvedCount === 0 ||
+                      unapprovedCount > 0 ||
+                      aiLoading ||
+                      publishing ||
+                      tooMany
+                    }
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {publishing && <Spinner />}
+                    {publishing ? "Publishing test..." : "Publish test"}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
+
+        {/* Published confirmation */}
+        {testId && published && linkToken && (
+          <section className="mx-auto max-w-2xl overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
+            <div className="bg-emerald-50 px-6 py-8 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-700">
+                ✓
+              </div>
+              <h2 className="mt-4 text-xl font-bold text-emerald-950">
+                Your test is published
+              </h2>
+              <p className="mt-2 text-sm text-emerald-800">
+                Your test is ready. Share the student login link and access code separately.
               </p>
-              <p className="mt-1 text-xs text-slate-400">Applied when you publish. Leave blank to give everyone every question.</p>
             </div>
 
-            <button
-              onClick={handlePublish}
-              disabled={approvedCount === 0 || unapprovedCount > 0 || aiLoading || publishing || tooMany}
-              className="w-full rounded-lg bg-emerald-700 text-white py-2 text-sm font-medium disabled:opacity-50 mt-5"
-            >
-              {publishing ? "Publishing..." : "Publish test"}
-            </button>
-            <ErrorMessage message={publishError} />
-            {unapprovedCount > 0 && (
-              <p className="text-xs text-amber-700 mt-2">
-                {unapprovedCount} question{unapprovedCount === 1 ? "" : "s"} still pending. Approve or delete{" "}
-                {unapprovedCount === 1 ? "it" : "them"} to publish.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
+            <div className="space-y-4 p-5 sm:p-6">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Student login link
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    readOnly
+                    value={studentLoginUrl(linkToken)}
+                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-600"
+                    onFocus={(e) => e.target.select()}
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(studentLoginUrl(linkToken));
+                        setLinkCopied(true);
 
-      {testId && published && linkToken && (
-          <div className="space-y-3 border border-slate-200 rounded-xl bg-white shadow-sm p-8 max-w-2xl mx-auto mt-5">
-            <p className="text-sm font-medium text-emerald-700">Test published.</p>
-            <div>
-              <label className="block text-sm text-slate-600 mb-1">Student login link (share this)</label>
-              <div className="flex gap-2">
-                <input
-                  readOnly
-                  value={studentLoginUrl(linkToken)}
-                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono bg-slate-50"
-                  onFocus={(e) => e.target.select()}
-                />
+                        setTimeout(() => {
+                          setLinkCopied(false);
+                        }, 2000);
+                      } catch {
+                        setLinkCopied(false);
+                      }
+                    }}
+                    className={`rounded-xl px-5 py-3 text-sm font-semibold text-white transition ${
+                      linkCopied
+                        ? "bg-emerald-600 hover:bg-emerald-700"
+                        : "bg-blue-600 hover:bg-blue-700"
+                    }`}
+                  >
+                    {linkCopied ? "Copied!" : "Copy link"}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-slate-400">
+                  Send this link and the access code through separate channels.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => navigator.clipboard.writeText(studentLoginUrl(linkToken))}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700"
+                  onClick={() => router.push("/lecturer/tests")}
+                  className="flex-1 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                 >
-                  Copy
+                  Go to all tests
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/lecturer/results/${testId}`)}
+                  className="flex-1 rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  View test results
                 </button>
               </div>
-              <p className="mt-1 text-xs text-slate-400">
-                Send this link and the access code through separate channels.
-              </p>
             </div>
-          </div>
+          </section>
         )}
-    </div>
+      </div>
+    </LecturerLayout>
   );
 }
 

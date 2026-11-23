@@ -106,6 +106,32 @@ export type SavedRosterSummary = {
   updatedAt: string;
 };
 
+export type LecturerAnalytics = {
+  tests: {
+    total: number;
+    published: number;
+    drafts: number;
+    rosterEntries: number;
+  };
+  attempts: {
+    inProgress: number;
+    submitted: number;
+    autoSubmitted: number;
+    completed: number;
+    averagePercentage: number | null;
+  };
+  activity: {
+    date: string;
+    submitted: number;
+    autoSubmitted: number;
+    total: number;
+  }[];
+  performanceDistribution: {
+    range: "0-49" | "50-69" | "70-84" | "85-100";
+    count: number;
+  }[];
+};
+
 export const api = {
   lecturerLogin: (email: string, password: string) =>
     request<{ ok: boolean }>("/api/auth/lecturer/login", {
@@ -232,6 +258,9 @@ export const api = {
       summary: { total: number; published: number; drafts: number; students: number };
     }>(`/api/tests?page=${page}&pageSize=${pageSize}`),
 
+  getLecturerAnalytics: () =>
+    request<LecturerAnalytics>("/api/tests/analytics"),
+  
   getTest: (testId: string) =>
     request<{
       test: {

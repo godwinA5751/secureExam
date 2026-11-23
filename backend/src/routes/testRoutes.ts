@@ -24,7 +24,8 @@ import {
   deleteTest,
   updateSettings,
   bulkQuestions,
-  deleteQuestion
+  deleteQuestion,
+  getLecturerAnalytics
 } from "../controllers/testController";
 import { aiGenerationLimiter, aiTextLimiter } from "../middleware/rateLimit";
 
@@ -40,6 +41,7 @@ router.param("questionId", objectIdParam);
 router.param("rosterId", objectIdParam);
 
 router.get("/", h(listMyTests));
+router.get("/analytics", h(getLecturerAnalytics));
 router.get("/:id", h(getTest));
 router.patch("/:id", h(updateTest));
 router.post("/", h(createTest));

@@ -2,8 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
-  background: #f8fafc;
+html {
+  scroll-behavior: smooth;
+}
+
+section[id] {
+  scroll-margin-top: 90px;
 }
 
 @keyframes fade-in-up {
