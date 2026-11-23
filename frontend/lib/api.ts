@@ -98,21 +98,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return body as T;
 }
 
-// NOTE: sessionStorage is used here for demo simplicity. For production, prefer
-// httpOnly, Secure, SameSite cookies issued by the API so the JWT is never
-// reachable from JavaScript (mitigates XSS token theft).
-// export const tokenStore = {
-//   get(key: "lecturerToken" | "studentToken"): string | null {
-//     if (typeof window === "undefined") return null;
-//     return window.sessionStorage.getItem(key);
-//   },
-//   set(key: "lecturerToken" | "studentToken", value: string) {
-//     window.sessionStorage.setItem(key, value);
-//   },
-//   clear(key: "lecturerToken" | "studentToken") {
-//     window.sessionStorage.removeItem(key);
-//   },
-// };
+export type SavedRosterSummary = {
+  id: string;
+  name: string;
+  studentCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export const api = {
   lecturerLogin: (email: string, password: string) =>
@@ -135,18 +127,33 @@ export const api = {
       { method: "POST", body: JSON.stringify(payload) }
     ),
 
-  uploadRoster: async (testId: string, file: File) => {
+  
+  uploadRoster: async (
+    testId: string,
+    file: File,
+    saveRoster = false,
+    rosterName = ""
+  ) => {
     const form = new FormData();
     form.append("roster", file);
-    
+    form.append("saveRoster", String(saveRoster));
+
+    if (saveRoster) {
+      form.append("rosterName", rosterName);
+    }
+
     const res = await fetch(`${API_BASE}/api/tests/${testId}/roster`, {
       method: "POST",
       credentials: "include",
       body: form,
     });
 
-    const body = await res.json();
-    if (!res.ok) throw new Error(getErrorMessage(body.error, "Upload failed"));
+    const body = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(getErrorMessage(body.error, "Upload failed"));
+    }
+
     return body as {
       acceptedCount: number;
       rejectedCount: number;
@@ -154,8 +161,31 @@ export const api = {
       namesAdded: number;
       ignoredNameCount: number;
       totalRosterSize: number;
+      savedRoster: {
+        id: string;
+        name: string;
+        studentCount: number;
+      } | null;
     };
   },
+
+    // List saved rosters belonging to the logged-in lecturer.
+  listSavedRosters: () =>
+    request<{ rosters: SavedRosterSummary[] }>(
+      "/api/rosters"
+    ),
+
+  // Apply a saved roster to an existing test.
+  applySavedRoster: (testId: string, rosterId: string) =>
+    request<{
+      acceptedCount: number;
+      namesAdded: number;
+      totalRosterSize: number;
+      rosterName: string;
+    }>(
+      `/api/tests/${testId}/roster/saved/${rosterId}`,
+      { method: "POST" }
+    ),
 
   uploadQuestions: async (testId: string, file: File, defaultTopic: string) => {
     const form = new FormData();

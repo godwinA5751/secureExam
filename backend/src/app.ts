@@ -4,6 +4,7 @@ import { generalApiLimiter } from "./middleware/rateLimit";
 import authRoutes from "./routes/authRoutes";
 import testRoutes from "./routes/testRoutes";
 import attemptRoutes from "./routes/attemptRoutes";
+import rosterRoutes from "./routes/rosterRoutes";
 import sweepRoutes from "./jobs/sweep";
 import { errorHandler, notFound } from "./middleware/errorHandler";
 import { requireTrustedOrigin } from "./middleware/originCheck";
@@ -30,7 +31,9 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/tests", testRoutes);
+app.use("/api/rosters", rosterRoutes);
 app.use("/api/attempts", attemptRoutes);
+
 // Protected by a shared secret header, not JWT - meant for a machine caller (cron), not a user.
 app.use("/internal", sweepRoutes);
 

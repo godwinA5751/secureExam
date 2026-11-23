@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import { ApiError, api } from "../../lib/api";
+import { ApiError, api, type SavedRosterSummary } from "../../lib/api";
 import { topicFromFileName } from "../../lib/topics";
 import { Skeleton } from "../../components/Skeleton";
 import { useProgressMessage } from "../../lib/useProgressMessage";
@@ -123,6 +123,25 @@ export default function CreateTest() {
   const [loadingDraft, setLoadingDraft] = useState(false);
   const [newCodeBusy, setNewCodeBusy] = useState(false);
 
+  const [saveRoster, setSaveRoster] = useState(false);
+  const [rosterName, setRosterName] = useState("");
+
+  const [rosterFile, setRosterFile] = useState<File | null>(null);
+  const [uploadingRoster, setUploadingRoster] = useState(false);
+  const [rosterFileInputKey, setRosterFileInputKey] = useState(0);
+
+  const [savedRosters, setSavedRosters] = useState<SavedRosterSummary[]>([]);
+  const [selectedSavedRosterId, setSelectedSavedRosterId] = useState("");
+  const [loadingSavedRosters, setLoadingSavedRosters] = useState(false);
+  const [applyingSavedRoster, setApplyingSavedRoster] = useState(false);
+  const [savedRosterError, setSavedRosterError] = useState<string | null>(null);
+
+  const [isEditingDraft, setIsEditingDraft] = useState(false);
+
+  const selectedSavedRoster = savedRosters.find(
+    (roster) => roster.id === selectedSavedRosterId
+  );
+
   const aiMessages = useMemo(() => {
     const topicList = aiTopics.split(",").map((s) => s.trim()).filter(Boolean)
     return [
@@ -156,6 +175,41 @@ export default function CreateTest() {
   }
 
   useEffect(() => {
+    if (!testId) return;
+
+    let cancelled = false;
+
+    async function loadSavedRosters() {
+      setLoadingSavedRosters(true);
+      setSavedRosterError(null);
+
+      try {
+        const result = await api.listSavedRosters();
+
+        if (!cancelled) {
+          setSavedRosters(result.rosters);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setSavedRosterError(
+            err.message || "Failed to load saved rosters."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingSavedRosters(false);
+        }
+      }
+    }
+
+    loadSavedRosters();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [testId]);
+
+  useEffect(() => {
     if (testId) refreshQuestions(testId).catch((err) => setQuestionsError(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testId, qPage, qStatus, qTopicFilter, debouncedQSearch]);
@@ -174,6 +228,7 @@ export default function CreateTest() {
           router.replace("/lecturer/tests"); // only drafts can be continued
           return;
         }
+        setIsEditingDraft(true);
         setTestId(test.id);
         setTitle(test.title);
         setStart(toLocalInput(test.loginWindowStart));
@@ -223,6 +278,37 @@ export default function CreateTest() {
     
   }
 
+  async function handleApplySavedRoster(rosterId: string) {
+    if (!testId || !rosterId || applyingSavedRoster) return;
+
+    setApplyingSavedRoster(true);
+    setSavedRosterError(null);
+    setRosterError(null);
+    setRosterMsg(null);
+
+    try {
+      const result = await api.applySavedRoster(testId, rosterId);
+
+      setRosterCount(result.totalRosterSize);
+
+      setRosterMsg(
+        `${result.acceptedCount} student(s) added from "${result.rosterName}" (${result.namesAdded} with names).`
+      );
+
+      setPublishError((current) =>
+        current === ROSTER_REQUIRED_ERROR ? null : current
+      );
+
+      invalidateTests();
+    } catch (err: any) {
+      setSavedRosterError(
+        err.message || "Failed to apply saved roster."
+      );
+    } finally {
+      setApplyingSavedRoster(false);
+    }
+  }
+
   async function handleSaveDetails(e: React.FormEvent) {
     e.preventDefault();
     if (!testId || savingDetails) return;
@@ -264,23 +350,89 @@ export default function CreateTest() {
     setCreateFieldErrors({});
   }
 
-  async function handleRoster(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!testId || !file) return;
+  function handleRosterFileChange(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0] ?? null;
+
+    setRosterFile(file);
     setRosterError(null);
     setRosterMsg(null);
-    setPublishError((current) => current === ROSTER_REQUIRED_ERROR ? null : current);
+  }
+
+  async function handleRosterUpload() {
+    if (!testId || !rosterFile || uploadingRoster) return;
+
+    if (saveRoster && rosterName.trim().length < 2) {
+      setRosterError("Please enter a roster name of at least 2 characters.");
+      return;
+    }
+
+    setRosterError(null);
+    setRosterMsg(null);
+
+    setPublishError((current) =>
+      current === ROSTER_REQUIRED_ERROR ? null : current
+    );
+
+    setUploadingRoster(true);
+
     try {
-      const result = await api.uploadRoster(testId, file);
-      setRosterCount(result.totalRosterSize);
-      setRosterMsg(
-        `${result.acceptedCount} student(s) added (${result.namesAdded} with names), ${result.rejectedCount} row(s) rejected.` + (result.ignoredNameCount > 0 ? ` ${result.ignoredNameCount} name(s) ignored for unsupported characters.` : "")
+      const result = await api.uploadRoster(
+        testId,
+        rosterFile,
+        saveRoster,
+        rosterName.trim()
       );
-      setPublishError((current) => current === ROSTER_REQUIRED_ERROR ? null : current);
+
+      setRosterCount(result.totalRosterSize);
+
+      setRosterMsg(
+        `${result.acceptedCount} student(s) added (${result.namesAdded} with names), ${result.rejectedCount} row(s) rejected.` +
+          (result.ignoredNameCount > 0
+            ? ` ${result.ignoredNameCount} name(s) ignored for unsupported characters.`
+            : "")
+      );
+
+      if (result.savedRoster) {
+        setRosterMsg(
+          (current) =>
+            `${current} Saved as "${result.savedRoster!.name}" for future use.`
+        );
+
+        setSelectedSavedRosterId(result.savedRoster.id);
+
+        // Refresh saved rosters without treating a refresh failure
+        // as an upload failure.
+        try {
+          const saved = await api.listSavedRosters();
+          setSavedRosters(saved.rosters);
+          setSavedRosterError(null);
+        } catch (err: any) {
+          setSavedRosterError(
+            err.message || "Roster saved, but the saved roster list could not refresh."
+          );
+        }
+      }
+
+      setPublishError((current) =>
+        current === ROSTER_REQUIRED_ERROR ? null : current
+      );
+
       setRosterError(null);
+
+      // Reset the file selection after a successful upload.
+      setRosterFile(null);
+      setRosterFileInputKey((current) => current + 1);
+
+      setSaveRoster(false);
+      setRosterName("");
+
       invalidateTests();
     } catch (err: any) {
-      setRosterError(err.message);
+      setRosterError(err.message || "Failed to upload roster.");
+    } finally {
+      setUploadingRoster(false);
     }
   }
 
@@ -364,7 +516,10 @@ export default function CreateTest() {
       setAiError(err.message);
     } finally {
       setAiLoading(false);
-      setTimeout(() => setAiSuccess(null), 5000); // hide the success message after a while
+      setTimeout(() => {
+        setAiSuccess(null); 
+        setAiNote(null);
+      }, 5000); // hide the success message after a while
     }
   }
 
@@ -564,7 +719,9 @@ export default function CreateTest() {
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
       <div className="flex items-center justify-between mb-6 fixed top-0 left-0 right-0 bg-slate-50 border-b border-slate-200 px-4 py-4 z-10">
-        <h1 className="text-lg font-semibold text-slate-800">{testId ? "Edit draft" : "Create test"}</h1>
+        <h1 className="text-lg font-semibold text-slate-800">
+          {isEditingDraft ? "Edit draft" : "Create test"}
+        </h1>
         <button onClick={() => router.push("/lecturer/tests")} className="text-md text-slate-600 rounded-full w-8 h-8 bg-slate-100 font-bold">
           x
         </button>
@@ -713,24 +870,178 @@ export default function CreateTest() {
                   </>
                 )}
               </div>
+              {/* Reuse a previously saved roster */}
+              <div className="mt-6 rounded-xl border border-slate-200 p-4">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Use a saved roster
+                </label>
 
-              <div className="mt-6">
-                <label className="block text-sm text-slate-600 mb-1">Upload roster (CSV: ID number, optional full name)</label>
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={handleRoster}
-                  className="w-full text-sm"
-                  aria-invalid={Boolean(rosterError)}
-                />
-                <ErrorMessage message={rosterError} />
-                {rosterMsg && <p className="text-xs text-slate-500 mt-1">{rosterMsg}</p>}
-                {rosterCount > 0 && (
-                  <p className="text-xs text-slate-500 mt-1">{rosterCount} student(s) on the roster so far.</p>
+                {loadingSavedRosters ? (
+                  <p className="text-sm text-slate-500">
+                    Loading your saved rosters...
+                  </p>
+                ) : savedRosters.length > 0 ? (
+                  <>
+                    <select
+                      value={selectedSavedRosterId}
+                      onChange={(e) => {
+                        const rosterId = e.target.value;
+
+                        setSelectedSavedRosterId(rosterId);
+                        setSavedRosterError(null);
+                        setRosterMsg(null);
+
+                        if (rosterId) {
+                          handleApplySavedRoster(rosterId);
+                        } else {
+                          setRosterCount(0);
+                        }
+                      }}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      disabled={applyingSavedRoster}
+                    >
+                      <option value="">Select a saved roster</option>
+
+                      {savedRosters.map((roster) => (
+                        <option key={roster.id} value={roster.id}>
+                          {roster.name} ({roster.studentCount} students)
+                        </option>
+                      ))}
+                    </select>
+                    {applyingSavedRoster && (
+                      <p className="mt-2 text-xs text-cyan-600">
+                        Applying selected roster...
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    You haven't saved any rosters yet. Upload a CSV below and select
+                    "Save this roster for future use" to create one.
+                  </p>
+                )}
+
+                {savedRosterError && (
+                  <p className="mt-2 text-xs text-red-600">
+                    {savedRosterError}
+                  </p>
                 )}
               </div>
 
-              <div className="rounded-xl border border-slate-200 p-6 mt-6">
+              <div className="mt-6 rounded-xl border border-slate-200 p-4">
+                <label className="block text-sm text-slate-600 mb-1">
+                  Upload roster (CSV: ID number, optional full name)
+                </label>
+
+                {selectedSavedRoster ? (
+                  <div className="flex items-center gap-3 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-3 my-2">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-100 text-cyan-700">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <path d="M14 2v6h6" />
+                        <path d="M8 13h8M8 17h8M8 9h2" />
+                      </svg>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-700">
+                        {selectedSavedRoster.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Saved roster · {selectedSavedRoster.studentCount} students
+                      </p>
+                    </div>
+
+                    <span className="text-xs font-medium text-cyan-700">
+                      Selected
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    key={rosterFileInputKey}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleRosterFileChange}
+                    className="w-full text-sm"
+                    aria-invalid={Boolean(rosterError)}
+                    disabled={uploadingRoster}
+                  />
+                )}
+
+                {rosterFile && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Selected file: {rosterFile.name}
+                  </p>
+                )}
+
+                {!selectedSavedRosterId && (
+                  <>
+                    <div className="mt-3">
+                      <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={saveRoster}
+                          onChange={(e) => setSaveRoster(e.target.checked)}
+                          className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                          disabled={uploadingRoster}
+                        />
+                        Save this roster for future use
+                      </label>
+
+                      {saveRoster && (
+                        <div className="mt-3">
+                          <label className="block text-sm text-slate-600 mb-1">
+                            Roster name
+                          </label>
+
+                          <input
+                            type="text"
+                            value={rosterName}
+                            onChange={(e) => setRosterName(e.target.value)}
+                            placeholder="e.g. CSC 301 - 300 Level"
+                            maxLength={100}
+                            disabled={uploadingRoster}
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleRosterUpload}
+                      disabled={!rosterFile || uploadingRoster}
+                      className="mt-4 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {uploadingRoster ? "Uploading roster..." : "Upload Roster"}
+                    </button>
+                  </>
+                )}
+
+                <ErrorMessage message={rosterError} />
+
+                {rosterMsg && (
+                  <p className="mt-1 text-xs text-slate-500">{rosterMsg}</p>
+                )}
+
+                {rosterCount > 0 && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    {rosterCount} student(s) on the roster so far.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-4 mt-6">
                 <h2 className="text-sm font-semibold text-slate-800 mb-3">Questions</h2>
                 <ErrorMessage message={questionsError} />
 
@@ -800,10 +1111,12 @@ export default function CreateTest() {
                     {aiSuccess}
                   </p>
                 )}
-                {aiNote && <p className="mb-3 text-xs text-amber-700">{aiNote}</p>}
+                {aiNote && <p className="my-3 text-xs text-amber-700">{aiNote}</p>}
               </div>
+            </div>
 
-              <div className="rounded-xl border border-slate-200 p-6 mt-6">
+            <div className="mt-6">  
+              <div className="rounded-xl border border-slate-200 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-medium text-slate-800">Upload questions from a file</h3>
                   <button
@@ -845,15 +1158,13 @@ export default function CreateTest() {
                   </ul>
                 )}
               </div>
-            </div>
 
-            <div className="mt-6">    
               <PdfQuestions
                 testId={testId}
                 onChanged={showNewQuestions}
               />
 
-              <form onSubmit={handleAddManual} className="space-y-2 my-4 bg-slate-50 rounded-lg p-5">
+              <form onSubmit={handleAddManual} className="space-y-2 mt-6 bg-slate-50 rounded-lg p-4">
                 <p className="text-xs font-medium text-slate-600 mb-1">Add a question manually</p>
                 <input value={qText} onChange={(e) => {
                   setQText(e.target.value);

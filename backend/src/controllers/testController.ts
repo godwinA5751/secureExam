@@ -3,6 +3,7 @@ import { Response } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { Test } from "../models/Test";
+import { SavedRoster } from "../models/SavedRoster";
 import { Question } from "../models/Question";
 import { Attempt } from "../models/Attempt";
 import { AuthedRequest } from "../middleware/auth";
@@ -102,27 +103,80 @@ async function loadOwnedTest(req: AuthedRequest, res: Response) {
   return test;
 }
 
-export async function uploadRoster(req: AuthedRequest & { file?: Express.Multer.File }, res: Response) {
+export async function uploadRoster(
+  req: AuthedRequest & { file?: Express.Multer.File },
+  res: Response
+) {
   const test = await loadOwnedTest(req, res);
   if (!test) return;
-  if (!req.file) return res.status(400).json({ error: "CSV file required" });
+
+  if (!req.file) {
+    return res.status(400).json({ error: "CSV file required" });
+  }
+
+  // Validate the optional save choice.
+  const saveRosterValue = req.body.saveRoster;
+
+  if (
+    saveRosterValue !== undefined &&
+    saveRosterValue !== "true" &&
+    saveRosterValue !== "false"
+  ) {
+    return res.status(400).json({
+      error: "Invalid saveRoster value.",
+    });
+  }
+
+  const shouldSaveRoster = saveRosterValue === "true";
+
+  let rosterName = "";
+
+  if (shouldSaveRoster) {
+    const parsedName = z
+      .string()
+      .trim()
+      .min(2)
+      .max(100)
+      .safeParse(req.body.rosterName);
+
+    if (!parsedName.success) {
+      return res.status(400).json({
+        error: "Enter a roster name between 2 and 100 characters.",
+      });
+    }
+
+    rosterName = parsedName.data;
+  }
 
   let result;
+
   try {
     result = parseRosterCsv(req.file.buffer, req.file.mimetype);
   } catch (e: any) {
     return res.status(400).json({ error: e.message });
   }
 
-  test.allowedStudents = Array.from(new Set([...test.allowedStudents, ...result.acceptedIds]));
+  // Preserve the existing test roster merge behaviour.
+  test.allowedStudents = Array.from(
+    new Set([...test.allowedStudents, ...result.acceptedIds])
+  );
 
-  // Merge names: a newer upload overwrites a name, but a blank name never erases an existing one.
-  const names = new Map<string, string>((test.rosterNames ?? []).map((r) => [r.idNumber, r.name]));
-  for (const s of result.acceptedStudents) {
-    if (s.name) names.set(s.idNumber, s.name);
+  // A newer non-empty name overwrites an existing name.
+  // A blank name never erases an existing one.
+  const names = new Map<string, string>(
+    (test.rosterNames ?? []).map((r) => [r.idNumber, r.name])
+  );
+
+  for (const student of result.acceptedStudents) {
+    if (student.name) {
+      names.set(student.idNumber, student.name);
+    }
   }
 
-  test.rosterNames = Array.from(names, ([idNumber, name]) => ({ idNumber, name }));
+  test.rosterNames = Array.from(
+    names,
+    ([idNumber, name]) => ({ idNumber, name })
+  );
 
   test.rosterUploadLog.push({
     uploadedAt: new Date(),
@@ -130,7 +184,60 @@ export async function uploadRoster(req: AuthedRequest & { file?: Express.Multer.
     rejectedCount: result.rejectedCount,
     rejectedReasons: result.rejectedReasons,
   });
-  await test.save();
+
+  let savedRoster: {
+    id: mongoose.Types.ObjectId;
+    name: string;
+    studentCount: number;
+  } | null = null;
+
+  if (shouldSaveRoster) {
+    // Build the saved roster from this CSV upload only,
+    // not from the test's already-merged roster.
+    const students = result.acceptedStudents.map((student) => ({
+      idNumber: student.idNumber,
+      name: student.name,
+    }));
+
+    if (students.length === 0) {
+      return res.status(400).json({
+        error: "There are no valid students to save in this roster.",
+      });
+    }
+
+    // Save both documents atomically.
+    const session = await mongoose.startSession();
+
+    try {
+      await session.withTransaction(async () => {
+        await test.save({ session });
+
+        const [roster] = await SavedRoster.create(
+          [
+            {
+              lecturerId: new mongoose.Types.ObjectId(
+                req.lecturer!.id
+              ),
+              name: rosterName,
+              students,
+            },
+          ],
+          { session }
+        );
+
+        savedRoster = {
+          id: roster._id,
+          name: roster.name,
+          studentCount: roster.students.length,
+        };
+      });
+    } finally {
+      await session.endSession();
+    }
+  } else {
+    // Keep the original upload path when saving is not requested.
+    await test.save();
+  }
 
   return res.json({
     acceptedCount: result.acceptedIds.length,
@@ -140,6 +247,74 @@ export async function uploadRoster(req: AuthedRequest & { file?: Express.Multer.
     ignoredNameCount: result.ignoredNameCount,
     nameWarnings: result.nameWarnings,
     totalRosterSize: test.allowedStudents.length,
+    savedRoster,
+  });
+}
+
+export async function applySavedRoster(
+  req: AuthedRequest,
+  res: Response
+) {
+  // Confirm the test belongs to the logged-in lecturer.
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+
+  // Only allow the lecturer to use their own saved rosters.
+  const savedRoster = await SavedRoster.findOne({
+    _id: req.params.rosterId,
+    lecturerId: req.lecturer!.id,
+  });
+
+  if (!savedRoster) {
+    return res.status(404).json({
+      error: "Saved roster not found.",
+    });
+  }
+
+  if (savedRoster.students.length === 0) {
+    return res.status(400).json({
+      error: "This saved roster contains no students.",
+    });
+  }
+
+  // Merge student IDs without introducing duplicates.
+  test.allowedStudents = Array.from(
+    new Set([
+      ...(test.allowedStudents ?? []),
+      ...savedRoster.students.map((student) => student.idNumber),
+    ])
+  );
+
+  // Merge names using the same rules as CSV uploads:
+  // non-empty incoming names overwrite existing names;
+  // blank names never erase existing names.
+  const names = new Map<string, string>(
+    (test.rosterNames ?? []).map((student) => [
+      student.idNumber,
+      student.name,
+    ])
+  );
+
+  for (const student of savedRoster.students) {
+    if (student.name) {
+      names.set(student.idNumber, student.name);
+    }
+  }
+
+  test.rosterNames = Array.from(
+    names,
+    ([idNumber, name]) => ({ idNumber, name })
+  );
+
+  await test.save();
+
+  return res.json({
+    acceptedCount: savedRoster.students.length,
+    namesAdded: savedRoster.students.filter(
+      (student) => Boolean(student.name)
+    ).length,
+    totalRosterSize: test.allowedStudents.length,
+    rosterName: savedRoster.name,
   });
 }
 

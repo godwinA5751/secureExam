@@ -7,6 +7,7 @@ import {
   createTest,
   listMyTests,
   uploadRoster,
+  applySavedRoster,
   uploadQuestions,
   generateQuestions,
   generateFromText,
@@ -36,12 +37,17 @@ router.use(requireLecturer);
 // Malformed IDs get a controlled 400 before any database query.
 router.param("id", objectIdParam);
 router.param("questionId", objectIdParam);
+router.param("rosterId", objectIdParam);
 
 router.get("/", h(listMyTests));
 router.get("/:id", h(getTest));
 router.patch("/:id", h(updateTest));
 router.post("/", h(createTest));
 router.post("/:id/roster", upload.single("roster"), h(uploadRoster));
+router.post(
+  "/:id/roster/saved/:rosterId",
+  h(applySavedRoster)
+);
 router.post("/:id/generate-questions", aiGenerationLimiter, h(generateQuestions));
 router.post("/:id/generate-from-text", aiTextLimiter, h(generateFromText));
 router.post("/:id/questions/upload", questionUpload.single("questions"), h(uploadQuestions));
@@ -58,4 +64,4 @@ router.patch("/:id/settings", h(updateSettings));
 router.delete("/:id/questions/:questionId", h(deleteQuestion));
 router.delete("/:id", h(deleteTest));
 
-export default router; 
+export default router;

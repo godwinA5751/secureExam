@@ -98,7 +98,7 @@ export default function PdfQuestions({ testId, onChanged }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 p-6">
+    <div className="rounded-xl border border-slate-200 p-4 mt-6">
       <h3 className="text-sm font-medium text-slate-800">Questions from a PDF</h3>
       <p className="mt-1 text-xs text-slate-500">
         The PDF is read in your browser and is not uploaded. Only its text is sent to Google&apos;s Gemini.
