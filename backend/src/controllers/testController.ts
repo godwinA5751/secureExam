@@ -1349,6 +1349,168 @@ export async function liveResults(req: AuthedRequest, res: Response) {
   });
 }
 
+export async function getTestAnalytics(req: AuthedRequest, res: Response) {
+  const test = await loadOwnedTest(req, res);
+  if (!test) return;
+
+  const registered = new Set(test.allowedStudents ?? []).size;
+
+  const attemptSummaryRows = await Attempt.aggregate([
+    { $match: { testId: test._id } },
+    {
+      $addFields: {
+        possibleMarks: {
+          $ifNull: [
+            "$totalMarks",
+            {
+              $multiply: [
+                { $size: { $ifNull: ["$shuffleMap.questionOrder", []] } },
+                { $ifNull: ["$marksPerQuestion", 1] },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        percentage: {
+          $cond: [
+            {
+              $and: [
+                { $isNumber: "$score" },
+                { $gt: ["$possibleMarks", 0] },
+              ],
+            },
+            {
+              $multiply: [
+                { $divide: ["$score", "$possibleMarks"] },
+                100,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    },
+    {
+      $facet: {
+        summary: [
+          {
+            $group: {
+              _id: null,
+              started: { $sum: 1 },
+              inProgress: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "in-progress"] }, 1, 0],
+                },
+              },
+              submitted: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "submitted"] }, 1, 0],
+                },
+              },
+              autoSubmitted: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "auto-submitted"] }, 1, 0],
+                },
+              },
+              averagePercentage: { $avg: "$percentage" },
+              highestPercentage: { $max: "$percentage" },
+              lowestPercentage: { $min: "$percentage" },
+            },
+          },
+        ],
+        distribution: [
+          { $match: { percentage: { $ne: null } } },
+          {
+            $group: {
+              _id: {
+                $switch: {
+                  branches: [
+                    { case: { $lt: ["$percentage", 50] }, then: "0-49" },
+                    { case: { $lt: ["$percentage", 70] }, then: "50-69" },
+                    { case: { $lt: ["$percentage", 85] }, then: "70-84" },
+                  ],
+                  default: "85-100",
+                },
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ],
+      },
+    },
+  ]);
+
+  const aggregate = attemptSummaryRows[0] ?? {
+    summary: [],
+    distribution: [],
+  };
+
+  const summary = aggregate.summary[0] ?? {
+    started: 0,
+    inProgress: 0,
+    submitted: 0,
+    autoSubmitted: 0,
+    averagePercentage: null,
+    highestPercentage: null,
+    lowestPercentage: null,
+  };
+
+  const completed = summary.submitted + summary.autoSubmitted;
+  const notStarted = Math.max(0, registered - summary.started);
+
+  const performanceDistribution = [
+    { range: "0-49", count: 0 },
+    { range: "50-69", count: 0 },
+    { range: "70-84", count: 0 },
+    { range: "85-100", count: 0 },
+  ];
+
+  for (const item of aggregate.distribution) {
+    const bucket = performanceDistribution.find(
+      (entry) => entry.range === item._id
+    );
+
+    if (bucket) bucket.count = item.count;
+  }
+
+  return res.json({
+    participation: {
+      registered,
+      started: summary.started,
+      notStarted,
+      inProgress: summary.inProgress,
+      completed,
+      completionRate:
+        registered > 0
+          ? Number(((completed / registered) * 100).toFixed(1))
+          : 0,
+    },
+    submissions: {
+      submitted: summary.submitted,
+      autoSubmitted: summary.autoSubmitted,
+    },
+    performance: {
+      averagePercentage:
+        summary.averagePercentage == null
+          ? null
+          : Number(summary.averagePercentage.toFixed(1)),
+      highestPercentage:
+        summary.highestPercentage == null
+          ? null
+          : Number(summary.highestPercentage.toFixed(1)),
+      lowestPercentage:
+        summary.lowestPercentage == null
+          ? null
+          : Number(summary.lowestPercentage.toFixed(1)),
+      distribution: performanceDistribution,
+    },
+  });
+}
+
+
 const settingsSchema = z.object({
   questionsPerStudent: z.number().int().min(1).max(500).nullable().optional(),
   marksPerQuestion: z.union([z.literal(1), z.literal(2)]).optional(),

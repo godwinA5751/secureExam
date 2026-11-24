@@ -132,6 +132,30 @@ export type LecturerAnalytics = {
   }[];
 };
 
+export type TestAnalytics = {
+  participation: {
+    registered: number;
+    started: number;
+    notStarted: number;
+    inProgress: number;
+    completed: number;
+    completionRate: number;
+  };
+  submissions: {
+    submitted: number;
+    autoSubmitted: number;
+  };
+  performance: {
+    averagePercentage: number | null;
+    highestPercentage: number | null;
+    lowestPercentage: number | null;
+    distribution: {
+      range: "0-49" | "50-69" | "70-84" | "85-100";
+      count: number;
+    }[];
+  };
+};
+
 export const api = {
   lecturerLogin: (email: string, password: string) =>
     request<{ ok: boolean }>("/api/auth/lecturer/login", {
@@ -260,7 +284,10 @@ export const api = {
 
   getLecturerAnalytics: () =>
     request<LecturerAnalytics>("/api/tests/analytics"),
-  
+
+  getTestAnalytics: (testId: string) =>
+    request<TestAnalytics>(`/api/tests/${testId}/analytics`),
+
   getTest: (testId: string) =>
     request<{
       test: {

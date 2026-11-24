@@ -25,7 +25,8 @@ import {
   updateSettings,
   bulkQuestions,
   deleteQuestion,
-  getLecturerAnalytics
+  getLecturerAnalytics,
+  getTestAnalytics
 } from "../controllers/testController";
 import { aiGenerationLimiter, aiTextLimiter } from "../middleware/rateLimit";
 
@@ -60,6 +61,7 @@ router.patch("/:id/questions/:questionId", h(updateQuestion));
 router.patch("/:id/questions", h(reviewQuestions));
 router.post("/:id/link", h(generateLink));
 router.post("/:id/access-code/regenerate", h(regenerateAccessCode));
+router.get("/:id/analytics", h(getTestAnalytics));
 router.get("/:id/results", h(liveResults));
 router.get("/:id/export", h(exportResults));
 router.patch("/:id/settings", h(updateSettings));

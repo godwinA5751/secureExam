@@ -7,6 +7,7 @@ export const keys = {
   tests: "tests",
   analytics: "analytics",
   results: (id: string) => `results:${id}`,
+  testAnalytics: (id: string) => `test-analytics:${id}`,
 };
 
 export type ResultsQuery = {
@@ -35,6 +36,18 @@ export function useLecturerAnalytics() {
     revalidateOnFocus: false,
     dedupingInterval: 30_000,
   });
+}
+
+export function useTestAnalytics(testId: string | undefined, live = false) {
+  return useSWR(
+    testId ? keys.testAnalytics(testId) : null,
+    () => api.getTestAnalytics(testId!),
+    {
+      refreshInterval: live ? 5000 : 0,
+      dedupingInterval: 3000,
+      keepPreviousData: true,
+    }
+  );
 }
 
 export function useResults(testId: string | undefined, query: ResultsQuery, live = false) {

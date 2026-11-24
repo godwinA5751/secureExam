@@ -6,7 +6,11 @@ import LecturerLayout from "../../../components/LecturerLayout";
 import Pagination from "../../../components/Pagination";
 import { Skeleton } from "../../../components/Skeleton";
 import { api } from "../../../lib/api";
-import { useResults, useDebounced } from "../../../lib/hooks";
+import {
+  useResults,
+  useTestAnalytics,
+  useDebounced,
+} from "../../../lib/hooks";
 
 type StatusFilter = "all" | "submitted" | "auto-submitted";
 
@@ -27,6 +31,15 @@ export default function TestResults() {
   const { data, isLoading: loading } = useResults(
     typeof testId === "string" ? testId : undefined,
     { page, pageSize, q: debouncedSearch, status: filter },
+    true
+  );
+
+  const {
+    data: analytics,
+    isLoading: analyticsLoading,
+    error: analyticsError,
+  } = useTestAnalytics(
+    typeof testId === "string" ? testId : undefined,
     true
   );
 
@@ -153,6 +166,94 @@ export default function TestResults() {
             </button>
           </div>
         )}
+
+
+        {/* Examination analytics */}
+        <section className="space-y-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-blue-600">
+                Performance insights
+              </span>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">
+                Examination analytics
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Monitor student participation, completion and overall examination performance.
+              </p>
+            </div>
+
+            <span className="inline-flex items-center gap-2 text-xs font-medium text-slate-400">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+              Updating every 5 seconds
+            </span>
+          </div>
+
+          {analyticsError ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            >
+              Unable to load examination analytics. Your student results are still
+              available below.
+            </div>
+          ) : analyticsLoading && !analytics ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="mt-6 h-40 w-full" />
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="mt-6 h-40 w-full" />
+              </div>
+            </div>
+          ) : analytics ? (
+            <>
+              {/* Participation and performance overview */}
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <AnalyticsMetric
+                  label="Registered students"
+                  value={analytics.participation.registered}
+                  description="Students on the examination roster"
+                  color="blue"
+                />
+                <AnalyticsMetric
+                  label="Started attempts"
+                  value={analytics.participation.started}
+                  description={`${analytics.participation.notStarted} not started`}
+                  color="violet"
+                />
+                <AnalyticsMetric
+                  label="Completion rate"
+                  value={`${analytics.participation.completionRate.toFixed(1)}%`}
+                  description={`${analytics.participation.completed} completed attempts`}
+                  color="emerald"
+                />
+                <AnalyticsMetric
+                  label="Currently taking"
+                  value={analytics.participation.inProgress}
+                  description="Students with an active attempt"
+                  color="amber"
+                />
+              </div>
+
+              {/* Charts */}
+              <div className="grid gap-5 xl:grid-cols-2">
+                <ParticipationChart
+                  completed={analytics.participation.completed}
+                  inProgress={analytics.participation.inProgress}
+                  notStarted={analytics.participation.notStarted}
+                  total={analytics.participation.registered}
+                />
+
+                <DistributionChart
+                  data={analytics.performance.distribution}
+                />
+              </div>
+            </>
+          ) : null}
+        </section>
 
         {/* Statistics */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -444,6 +545,284 @@ export default function TestResults() {
         </section>
       </div>
     </LecturerLayout>
+  );
+}
+
+function AnalyticsMetric({
+  label,
+  value,
+  description,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  description: string;
+  color: "blue" | "violet" | "emerald" | "amber";
+}) {
+  const accents = {
+    blue: "border-l-blue-500",
+    violet: "border-l-violet-500",
+    emerald: "border-l-emerald-500",
+    amber: "border-l-amber-500",
+  };
+
+  return (
+    <div
+      className={`rounded-2xl border border-slate-200 border-l-4 ${accents[color]} bg-white p-5 shadow-sm`}
+    >
+      <p className="text-sm font-medium text-slate-500">{label}</p>
+      <p className="mt-3 text-3xl font-bold tracking-tight text-slate-900">
+        {value}
+      </p>
+      <p className="mt-2 text-xs text-slate-400">{description}</p>
+    </div>
+  );
+}
+
+
+function ParticipationChart({
+  completed,
+  inProgress,
+  notStarted,
+  total,
+}: {
+  completed: number;
+  inProgress: number;
+  notStarted: number;
+  total: number;
+}) {
+  const items = [
+    {
+      label: "Completed",
+      value: completed,
+      color: "bg-emerald-500",
+    },
+    {
+      label: "In progress",
+      value: inProgress,
+      color: "bg-blue-600",
+    },
+    {
+      label: "Not started",
+      value: notStarted,
+      color: "bg-slate-300",
+    },
+  ];
+
+  const maxValue = Math.max(1, ...items.map((item) => item.value));
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div>
+        <h3 className="text-sm font-bold text-slate-900">
+          Student participation
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Breakdown of students registered for this examination
+        </p>
+      </div>
+
+      {total === 0 ? (
+        <div className="flex h-56 flex-col items-center justify-center text-center">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-50 text-slate-400">
+            <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6">
+              <path
+                d="M16 20v-1.5a4.5 4.5 0 0 0-4.5-4.5h-3A4.5 4.5 0 0 0 4 18.5V20M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 3.2a4 4 0 0 1 0 7.6"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+          <p className="mt-3 text-sm font-semibold text-slate-700">
+            No registered students
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Participation will appear when students are added to the roster.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="mt-7 flex h-56 items-end justify-between gap-3 sm:gap-6">
+            {items.map((item) => {
+              const percentage = (item.value / total) * 100;
+              const barHeight = (item.value / maxValue) * 100;
+
+              return (
+                <div
+                  key={item.label}
+                  className="flex h-full min-w-0 flex-1 flex-col items-center justify-end"
+                >
+                  <div className="mb-2 text-center">
+                    <p className="text-sm font-bold tabular-nums text-slate-800">
+                      {item.value.toLocaleString()}
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      {percentage.toFixed(1)}%
+                    </p>
+                  </div>
+
+                  <div className="flex h-36 w-full items-end justify-center">
+                    <div
+                      title={`${item.value} students (${percentage.toFixed(1)}%)`}
+                      className={`w-full max-w-14 rounded-t-lg transition-all duration-500 ${item.color}`}
+                      style={{
+                        height: `${barHeight}%`,
+                        minHeight: item.value > 0 ? "4px" : "0",
+                      }}
+                    />
+                  </div>
+
+                  <span className="mt-3 text-center text-[10px] font-medium leading-4 text-slate-500 sm:text-xs">
+                    {item.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 border-t border-slate-100 pt-4 text-[11px] text-slate-500">
+            {items.map((item) => (
+              <span key={item.label} className="flex items-center gap-1.5">
+                <span className={`h-2 w-2 rounded-full ${item.color}`} />
+                {item.label}
+              </span>
+            ))}
+          </div>
+
+          <p className="mt-3 text-xs text-slate-400">
+            Total registered students:{" "}
+            <span className="font-bold text-slate-700">
+              {total.toLocaleString()}
+            </span>
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DistributionChart({
+  data,
+}: {
+  data: {
+    range: "0-49" | "50-69" | "70-84" | "85-100";
+    count: number;
+  }[];
+}) {
+  const ranges = [
+    {
+      range: "0-49",
+      label: "0–49%",
+      color: "bg-rose-500",
+    },
+    {
+      range: "50-69",
+      label: "50–69%",
+      color: "bg-amber-500",
+    },
+    {
+      range: "70-84",
+      label: "70–84%",
+      color: "bg-blue-600",
+    },
+    {
+      range: "85-100",
+      label: "85–100%",
+      color: "bg-emerald-500",
+    },
+  ] as const;
+
+  const total = data.reduce((sum, item) => sum + item.count, 0);
+  const maxValue = Math.max(
+    1,
+    ...data.map((item) => item.count)
+  );
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div>
+        <h3 className="text-sm font-bold text-slate-900">
+          Performance distribution
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Completed attempts grouped by percentage score
+        </p>
+      </div>
+
+      {total === 0 ? (
+        <div className="flex h-56 flex-col items-center justify-center text-center">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-50 text-slate-400">
+            <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6">
+              <path
+                d="M4 19V5M4 19h16M7 15h3M12 10h3M17 6h3"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+          <p className="mt-3 text-sm font-semibold text-slate-700">
+            No performance data yet
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Scores will appear after students complete examinations.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="mt-7 flex h-56 items-end justify-between gap-2 sm:gap-4">
+            {ranges.map((item) => {
+              const count =
+                data.find((entry) => entry.range === item.range)?.count ?? 0;
+
+              const percentage = (count / total) * 100;
+              const barHeight = (count / maxValue) * 100;
+
+              return (
+                <div
+                  key={item.range}
+                  className="flex h-full min-w-0 flex-1 flex-col items-center justify-end"
+                >
+                  <div className="mb-2 text-center">
+                    <p className="text-sm font-bold tabular-nums text-slate-800">
+                      {count.toLocaleString()}
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      {percentage.toFixed(1)}%
+                    </p>
+                  </div>
+
+                  <div className="flex h-36 w-full items-end justify-center">
+                    <div
+                      title={`${count} completed attempts (${percentage.toFixed(1)}%)`}
+                      className={`w-full max-w-12 rounded-t-lg transition-all duration-500 ${item.color}`}
+                      style={{
+                        height: `${barHeight}%`,
+                        minHeight: count > 0 ? "4px" : "0",
+                      }}
+                    />
+                  </div>
+
+                  <span className="mt-3 text-center text-[10px] font-semibold text-slate-500 sm:text-xs">
+                    {item.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <p className="text-xs text-slate-500">
+              Total completed attempts:{" "}
+              <span className="font-bold text-slate-800">
+                {total.toLocaleString()}
+              </span>
+            </p>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
