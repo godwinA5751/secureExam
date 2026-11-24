@@ -8,7 +8,10 @@ export type StudentTokenPayload = {
   testId: string;
   linkToken: string;
 };
-export type Verified<T> = T & { jti?: string; exp?: number };
+export type Verified<T> = T & {
+  jti: string;
+  exp: number;
+};
 
 function requireSecret(name: string): string {
   const v = process.env[name];
@@ -27,11 +30,12 @@ export function signLecturerToken(payload: LecturerTokenPayload): string {
   });
 }
 
-export function verifyLecturerToken(token: string): Verified<LecturerTokenPayload>  {
+export function verifyLecturerToken(token: string): Verified<LecturerTokenPayload> {
   return jwt.verify(token, requireSecret("JWT_LECTURER_SECRET"), {
+    algorithms: ["HS256"],
     issuer: "secureexam",
     audience: "secureexam-lecturer",
-  }) as Verified<LecturerTokenPayload> ;
+  }) as Verified<LecturerTokenPayload>;
 }
 
 /**
@@ -49,6 +53,7 @@ export function signStudentToken(payload: StudentTokenPayload, expiresInSeconds:
 
 export function verifyStudentToken(token: string): Verified<StudentTokenPayload> {
   return jwt.verify(token, requireSecret("JWT_STUDENT_SECRET"), {
+    algorithms: ["HS256"],
     issuer: "secureexam",
     audience: "secureexam-student",
   }) as Verified<StudentTokenPayload>;

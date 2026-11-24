@@ -1,12 +1,10 @@
 # SecureExam
 
-Lecturer-managed, AI-assisted online testing platform. Lecturers upload a roster,
-generate and review questions, publish a timed test link, and watch results live.
-Students log in with their ID number and an access code and sit the test in a locked page.
+Lecturer-managed, AI-assisted online testing platform. Lecturers upload a roster, generate and review questions, publish a timed test link, and watch results live. Students log in with their ID number and an access code and sit the test in a locked page.
 
 ## Structure
 
-```
+```text
 backend/    Express + TypeScript API, MongoDB/Mongoose, JWT auth in httpOnly cookies
 frontend/   Next.js (pages router) + Tailwind - lecturer & student UI
 ```
@@ -19,7 +17,7 @@ frontend/   Next.js (pages router) + Tailwind - lecturer & student UI
 cd backend
 cp .env.example .env    # then fill it in (see comments inside)
 npm install
-npm run dev             # http://localhost:4000
+npm run dev              # http://localhost:4000
 ```
 
 Generate strong secrets:
@@ -44,9 +42,7 @@ cd backend
 npm test
 ```
 
-The database tests start a temporary in-memory MongoDB. The **first run downloads a
-MongoDB binary** (needs internet and some disk space); it is cached afterwards. Your real
-database is never touched.
+The database tests start a temporary in-memory MongoDB. The **first run downloads a MongoDB binary** (needs internet and some disk space); it is cached afterwards. Your real database is never touched.
 
 ## Environment variables (backend)
 
@@ -68,40 +64,26 @@ Frontend: `NEXT_PUBLIC_API_BASE` (API base URL).
 
 ## Deadlines and the sweep
 
-Deadlines are enforced three ways: the student page heartbeat, a server recheck on every
-answer write, and a sweep that force-submits overdue attempts and repairs any finalized
-attempt that is missing a score.
+Deadlines are enforced three ways: the student page heartbeat, a server recheck on every answer write, and a sweep that force-submits overdue attempts and repairs any finalized attempt that is missing a score.
 
 - The sweep runs inside the server every `SWEEP_INTERVAL_SECONDS`.
-- Hosts that sleep when idle (e.g. Render free tier) also need an external ping. See
-  `.github/workflows/sweep.yml`, which calls `POST /internal/sweep` with header
-  `x-sweep-secret: <SWEEP_SECRET>`. Add `API_BASE_URL` and `SWEEP_SECRET` as repository secrets.
+- Hosts that sleep when idle (e.g. Render free tier) also need an external ping. See `.github/workflows/sweep.yml`, which calls `POST /internal/sweep` with header `x-sweep-secret: <SWEEP_SECRET>`. Add `API_BASE_URL` and `SWEEP_SECRET` as repository secrets.
 
-All paths finalize through one function (`services/scoring.ts`), which claims the attempt
-atomically, so submit, heartbeat, deadline and sweep can all run at once without double-scoring.
+All paths finalize through one function (`services/scoring.ts`), which claims the attempt atomically, so submit, heartbeat, deadline and sweep can all run at once without double-scoring.
 
 ## Building a test
 
 1. **Create the test**: title, start and end time, time per student, optional instructions.
-2. **Add questions**, from any mix of these sources. Everything not typed by hand arrives as
-   "pending" and must be approved before it counts:
+2. **Add questions**, from any mix of these sources. Everything not typed by hand arrives as "pending" and must be approved before it counts:
    - **AI from topics**: type the topics and how many questions to write (up to 40 per run).
-   - **Upload a CSV**: header row `question, A, B, C, D, correct, topic`. Download the template from
-     the page. Rows without a topic get the file's name (editable).
-   - **PDF of course material**: the PDF is read in the lecturer's browser and is not uploaded; only
-     its text is sent to Google Gemini, in small pieces. Two modes: write new questions from the
-     material, or copy questions already in the PDF (only those with a clearly marked correct answer).
-     Up to 150 pages / 30 MB; scanned PDFs are not supported.
+   - **Upload a CSV**: header row `question, A, B, C, D, correct, topic`. Download the template from the page. Rows without a topic get the file's name (editable).
+   - **PDF of course material**: the PDF is read in the lecturer's browser and is not uploaded; only its text is sent to Google Gemini, in small pieces. Two modes: write new questions from the material, or copy questions already in the PDF (only those with a clearly marked correct answer). Up to 150 pages / 30 MB; scanned PDFs are not supported.
    - **By hand**: the topic is optional ("General" if blank).
-3. **Review**: search, filter by status or topic, select and bulk approve or delete. The answer key is
-   visible here and nowhere on the student side.
-4. **Exam settings**: *questions per student* (each student gets their own random subset, balanced
-   across topics; blank means everyone gets every question) and *marks per question* (1 or 2).
-   Scores, results and exports are in marks.
+3. **Review**: search, filter by status or topic, select and bulk approve or delete. The answer key is visible here and nowhere on the student side.
+4. **Exam settings**: *questions per student* (each student gets their own random subset, balanced across topics; blank means everyone gets every question) and *marks per question* (1 or 2). Scores, results and exports are in marks.
 5. **Publish**. After publishing, questions and settings are frozen.
 
-Topics are labels on questions, not part of the test. A topic is matched ignoring capital letters,
-so "networking" joins "Networking".
+Topics are labels on questions, not part of the test. A topic is matched ignoring capital letters, so "networking" joins "Networking".
 
 ## Where each control lives
 
@@ -119,7 +101,7 @@ so "networking" joins "Networking".
 | Async error handling, ID validation | `utils/asyncHandler.ts`, `middleware/validateObjectId.ts`, `middleware/errorHandler.ts` |
 | Published tests are frozen | question add/generate/review are rejected once a test is published |
 | CSV roster hardening | `services/csvService.ts` (size cap, MIME check, formula-injection stripping, ID allow-list, de-dup) |
-| Tab-visibility anti-cheat | `student/test.tsx` reports `blur`/`visibilitychange` to `heartbeat`, which force-submits |
+| Tab-visibility anti-cheat | `student/test.tsx` reports visibility/focus incidents through `heartbeat`; students are warned, and the attempt is automatically submitted after two distinct incidents |
 | Headers/CORS | `middleware/security.ts` (helmet, CSP `frame-ancestors: none`, scoped CORS) |
 | Ownership checks | Every lecturer route re-verifies `test.lecturerId` (`loadOwnedTest`) |
 
@@ -127,13 +109,10 @@ so "networking" joins "Networking".
 
 - Set `NODE_ENV=production` (enables `Secure` cookies) and serve both apps over HTTPS.
 - Set `CLIENT_URL` to the exact frontend URL(s), e.g. `https://your-app.vercel.app`.
-- Frontend and backend on **different sites** (e.g. Vercel + Render): leave `COOKIE_SAMESITE` unset.
-  Same parent domain: set `COOKIE_SAMESITE=lax`.
+- Frontend and backend on **different sites** (e.g. Vercel + Render): leave `COOKIE_SAMESITE` unset. Same parent domain: set `COOKIE_SAMESITE=lax`.
 
 ## Known trade-offs
 
-- Tab-visibility detection is a deterrent, not proof. Any loss of focus ends the attempt
-  immediately, which is strict; tell students to close other windows and notifications first.
+- Tab-visibility detection is a deterrent, not proof. SecureExam warns students after a focus-loss incident and automatically submits the attempt after two distinct incidents. Students should close other windows and notifications before starting an examination.
 - AI-generated questions are saved unapproved and must be reviewed by the lecturer before publishing.
-- Auth cookies use `SameSite=None` in production when frontend and backend are on different sites;
-  the Origin check is what protects state-changing requests in that setup.
+- Auth cookies use `SameSite=None` in production when frontend and backend are on different sites; the Origin check is what protects state-changing requests in that setup.

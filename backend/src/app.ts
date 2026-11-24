@@ -10,16 +10,10 @@ import { errorHandler, notFound } from "./middleware/errorHandler";
 import { requireTrustedOrigin } from "./middleware/originCheck";
 
 const app = express();
-app.use((req, _res, next) => {
-  console.log({
-    ip: req.ip,
-    ips: req.ips,
-    socketAddress: req.socket.remoteAddress,
-    forwardedFor: req.headers["x-forwarded-for"],
-  });
 
-  next();
-});
+// Trust the single reverse proxy in front of the Render application.
+// This allows Express to identify clients using the forwarded IP address.
+app.set("trust proxy", 1);
 
 app.use(securityHeaders);
 app.use(buildCors());

@@ -5,7 +5,17 @@ export const STUDENT_COOKIE = "secureExamStudent";
 
 const isProduction = process.env.NODE_ENV === "production";
 
-const sameSite = (process.env.COOKIE_SAMESITE as "lax" | "strict" | "none" | undefined) ??
+const configuredSameSite = process.env.COOKIE_SAMESITE?.toLowerCase();
+
+if (
+  configuredSameSite &&
+  !["lax", "strict", "none"].includes(configuredSameSite)
+) {
+  throw new Error("COOKIE_SAMESITE must be lax, strict, or none");
+}
+
+const sameSite =
+  (configuredSameSite as "lax" | "strict" | "none" | undefined) ??
   (isProduction ? "none" : "lax");
 
 const cookieOptions = {

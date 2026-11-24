@@ -189,24 +189,28 @@ export async function studentLogin(req: Request, res: Response) {
 }
 
 export async function logout(req: Request, res: Response) {
-  // End the session on the server too, so a copied token stops working immediately.
-  for (const [cookieName, verify] of [
-    [LECTURER_COOKIE, verifyLecturerToken],
-    [STUDENT_COOKIE, verifyStudentToken],
-  ] as const) {
-    const token = extractToken(req, cookieName);
-    if (!token) continue;
-    let payload;
-    try {
-      payload = verify(token);
-    } catch {
-      continue; // already invalid or expired: nothing to revoke
-    }
-    await revokeToken(payload);
-  }
+  try {
+    for (const [cookieName, verify] of [
+      [LECTURER_COOKIE, verifyLecturerToken],
+      [STUDENT_COOKIE, verifyStudentToken],
+    ] as const) {
+      const token = extractToken(req, cookieName);
+      if (!token) continue;
 
-  clearAuthCookie(res, LECTURER_COOKIE);
-  clearAuthCookie(res, STUDENT_COOKIE);
+      let payload;
+
+      try {
+        payload = verify(token);
+      } catch {
+        continue;
+      }
+
+      await revokeToken(payload);
+    }
+  } finally {
+    clearAuthCookie(res, LECTURER_COOKIE);
+    clearAuthCookie(res, STUDENT_COOKIE);
+  }
 
   return res.json({ message: "Logged out successfully" });
 }
