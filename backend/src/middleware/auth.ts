@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { User } from "../models/User";
 import { verifyLecturerToken, verifyStudentToken } from "../utils/jwt";
 import { isRevoked } from "../services/sessions";
 import {
@@ -42,10 +43,34 @@ export async function requireLecturer(req: AuthedRequest, res: Response, next: N
 
   try {
     if (await isRevoked(payload.jti)) {
-      return res.status(401).json({ error: "Session ended. Please log in again." });
+      return res.status(401).json({
+        error: "Session ended. Please log in again.",
+      });
+    }
+
+    const user = await User.findOne({
+      _id: payload.sub,
+      role: "lecturer",
+    })
+      .select("authVersion")
+      .lean();
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Lecturer account not found.",
+      });
+    }
+
+    const tokenVersion = payload.authVersion ?? 0;
+    const currentVersion = user.authVersion ?? 0;
+
+    if (tokenVersion !== currentVersion) {
+      return res.status(401).json({
+        error: "Your session has expired. Please log in again.",
+      });
     }
   } catch (e) {
-    return next(e); // can't confirm the session is still valid: fail the request
+    return next(e);
   }
 
   req.lecturer = { id: payload.sub };

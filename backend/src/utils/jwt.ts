@@ -1,16 +1,28 @@
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 
-export type LecturerTokenPayload = { sub: string; role: "lecturer" };
+export type LecturerTokenPayload = {
+  sub: string;
+  role: "lecturer";
+  authVersion: number;
+};
+
 export type StudentTokenPayload = {
   sub: string;
   role: "student";
   testId: string;
   linkToken: string;
 };
+
 export type Verified<T> = T & {
   jti: string;
   exp: number;
+};
+
+export type VerifiedLecturerToken = Verified<
+  Omit<LecturerTokenPayload, "authVersion">
+> & {
+  authVersion?: number;
 };
 
 function requireSecret(name: string): string {
@@ -30,12 +42,12 @@ export function signLecturerToken(payload: LecturerTokenPayload): string {
   });
 }
 
-export function verifyLecturerToken(token: string): Verified<LecturerTokenPayload> {
+export function verifyLecturerToken(token: string): VerifiedLecturerToken {
   return jwt.verify(token, requireSecret("JWT_LECTURER_SECRET"), {
     algorithms: ["HS256"],
     issuer: "secureexam",
     audience: "secureexam-lecturer",
-  }) as Verified<LecturerTokenPayload>;
+  }) as VerifiedLecturerToken;
 }
 
 /**

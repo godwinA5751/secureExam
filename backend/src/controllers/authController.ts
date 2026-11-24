@@ -36,6 +36,155 @@ export async function getLecturerProfile(req: AuthedRequest, res: Response) {
   return res.json({ id: user._id, name: user.name, email: user.email, createdAt: user.createdAt });
 }
 
+
+const updateLecturerProfileSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  email: z.string().trim().email().transform((value) => value.toLowerCase()),
+});
+
+export async function updateLecturerProfile(
+  req: AuthedRequest,
+  res: Response
+) {
+  const parsed = updateLecturerProfileSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid profile information" });
+  }
+
+  const { name, email } = parsed.data;
+
+  const user = await User.findOne({
+    _id: req.lecturer!.id,
+    role: "lecturer",
+  });
+
+  if (!user) {
+    return res.status(404).json({ error: "Lecturer account not found" });
+  }
+
+  const existing = await User.findOne({
+    email,
+    _id: { $ne: user._id },
+    role: "lecturer",
+  });
+
+  if (existing) {
+    return res.status(409).json({
+      error: "This email address is already registered",
+    });
+  }
+
+  user.name = name;
+  user.email = email;
+
+  try {
+    await user.save();
+  } catch (error: any) {
+    // Also handle a duplicate-key race condition.
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        error: "This email address is already registered",
+      });
+    }
+
+    throw error;
+  }
+
+  return res.json({
+    ok: true,
+    profile: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+    },
+  });
+}
+
+
+const changeLecturerPasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  newPassword: z.string().min(10).max(128),
+});
+
+export async function changeLecturerPassword(
+  req: AuthedRequest,
+  res: Response
+) {
+  const parsed = changeLecturerPasswordSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid password information",
+    });
+  }
+
+  const { currentPassword, newPassword } = parsed.data;
+
+  const user = await User.findOne({
+    _id: req.lecturer!.id,
+    role: "lecturer",
+  }).select("+passwordHash");
+
+  if (!user || !user.passwordHash) {
+    return res.status(404).json({
+      error: "Lecturer account not found",
+    });
+  }
+
+  const valid = await bcrypt.compare(
+    currentPassword,
+    user.passwordHash
+  );
+
+  if (!valid) {
+    return res.status(400).json({
+      error: "Current password is incorrect",
+    });
+  }
+
+  const samePassword = await bcrypt.compare(
+    newPassword,
+    user.passwordHash
+  );
+
+  if (samePassword) {
+    return res.status(400).json({
+      error: "New password must be different from your current password",
+    });
+  }
+
+ user.passwordHash = await bcrypt.hash(newPassword, 12);
+  user.failedLoginAttempts = 0;
+  user.lockedUntil = null;
+
+  // Invalidate all previously issued lecturer tokens.
+  user.authVersion = (user.authVersion ?? 0) + 1;
+
+  await user.save();
+
+  // Issue a fresh token for the current device.
+  const token = signLecturerToken({
+    sub: user._id.toString(),
+    role: "lecturer",
+    authVersion: user.authVersion,
+  });
+
+  setAuthCookie(
+    res,
+    LECTURER_COOKIE,
+    token,
+    12 * 60 * 60 * 1000
+  );
+
+  return res.json({
+    ok: true,
+    message: "Password changed successfully",
+  });
+}
+
+
 export async function lecturerRegister(req: Request, res: Response) {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
@@ -49,6 +198,7 @@ export async function lecturerRegister(req: Request, res: Response) {
   const token = signLecturerToken({
     sub: user._id.toString(),
     role: "lecturer",
+    authVersion: user.authVersion ?? 0,
   });
 
   setAuthCookie(res, LECTURER_COOKIE, token, 12 * 60 * 60 * 1000);
@@ -95,6 +245,7 @@ export async function lecturerLogin(req: Request, res: Response) {
   const token = signLecturerToken({
     sub: user._id.toString(),
     role: "lecturer",
+    authVersion: user.authVersion ?? 0,
   });
 
   setAuthCookie(res, LECTURER_COOKIE, token, 12 * 60 * 60 * 1000);

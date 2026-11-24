@@ -9,6 +9,7 @@ export interface IUser extends Document {
   email?: string; // lecturer login identifier
   name: string;
   passwordHash?: string; // lecturer only
+  authVersion: number; // incremented on password change to invalidate old tokens
   failedLoginAttempts: number;
   lockedUntil?: Date | null;
   createdAt: Date;
@@ -46,6 +47,12 @@ const UserSchema = new Schema<IUser>({
   passwordHash: { 
     type: String, 
     select: false 
+  },
+
+  authVersion: {
+    type: Number,
+    default: 0,
+    min: 0,
   },
 
   failedLoginAttempts: { 

@@ -256,6 +256,32 @@ export const api = {
   getMe: () =>
   request<{ id: string; name: string; email: string; createdAt: string }>("/api/auth/lecturer/me"),
 
+  updateLecturerProfile: (payload: { name: string; email: string }) =>
+    request<{
+      ok: boolean;
+      profile: {
+        id: string;
+        name: string;
+        email: string;
+        createdAt: string;
+      };
+    }>("/api/auth/lecturer/me", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  changeLecturerPassword: (
+    currentPassword: string,
+    newPassword: string
+  ) =>
+    request<{
+      ok: boolean;
+      message: string;
+    }>("/api/auth/lecturer/change-password", {
+      method: "PATCH",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
   logout: () =>
   request<{ message: string }>("/api/auth/logout", {
     method: "POST",
